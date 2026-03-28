@@ -18,7 +18,6 @@ df = load_data()
 
 # 4. [기능] 새 문장 저장 및 입력창 비우기 함수
 def save_and_clear():
-    # 사이드바 입력창의 값 가져오기
     new_en = st.session_state.en_input
     new_ko = st.session_state.ko_input
     
@@ -32,13 +31,22 @@ def save_and_clear():
         updated_df = pd.concat([df, new_row], ignore_index=True)
         conn.update(data=updated_df)
         
-        # 사이드바 입력창 비우기
+        # 입력창 상태 비우기
         st.session_state.en_input = ""
         st.session_state.ko_input = ""
-        
         st.success("✅ 구글 시트에 저장 완료!")
     else:
         st.warning("⚠️ 문장과 뜻을 모두 입력해주세요.")
+
+# --- 퀴즈 초기화 전용 함수 (핵심 수정 포인트) ---
+def reset_quiz():
+    # 1. 기존 문제 인덱스 삭제
+    if 'quiz_idx' in st.session_state:
+        del st.session_state.quiz_idx
+    # 2. 입력창에 남은 텍스트 강제 삭제
+    if 'quiz_input' in st.session_state:
+        st.session_state.quiz_input = ""
+    # 이 함수가 끝나면 자동으로 rerun 효과가 납니다.
 
 # 5. 사이드바 구성
 with st.sidebar:
@@ -53,7 +61,6 @@ tab1, tab2 = st.tabs(["📖 내 문장 리스트", "🧠 암기 테스트"])
 with tab1:
     st.subheader("저장된 문장들")
     if not df.empty:
-        # 최신 저장된 문장이 위로 오게 정렬
         sorted_df = df.iloc[::-1]
         st.dataframe(sorted_df, use_container_width=True)
     else:
@@ -62,7 +69,7 @@ with tab1:
 with tab2:
     st.subheader("오늘의 복습 퀴즈")
     if not df.empty:
-        # 퀴즈용 인덱스 생성
+        # 퀴즈용 인덱스가 없으면 랜덤 생성
         if 'quiz_idx' not in st.session_state:
             st.session_state.quiz_idx = df.sample(n=1).index[0]
         
@@ -79,18 +86,8 @@ with tab2:
             else:
                 st.error(f"❌ 아쉽네요! 정답은 : **{target['english']}**")
 
-        # --- 에러 해결 포인트: 다음 문제로 넘어가기 ---
-        if st.button("다른 문제 풀기 (새로고침)"):
-            # 1. 퀴즈 인덱스 삭제 (새 문제 로드를 위해)
-            if 'quiz_idx' in st.session_state:
-                del st.session_state.quiz_idx
-            
-            # 2. 핵심: 값을 ""로 대입하지 않고, 아예 삭제(del)합니다.
-            # 그러면 Streamlit이 'quiz_input'이라는 상태를 새로 깨끗하게 만듭니다.
-            if 'quiz_input' in st.session_state:
-                del st.session_state.quiz_input
-            
-            st.rerun() # 앱 재실행
+        # --- 수정 포인트: on_click 콜백을 사용하여 비우기 ---
+        st.button("다른 문제 풀기 (새로고침)", on_click=reset_quiz)
             
     else:
         st.warning("테스트할 문장이 없습니다.")
