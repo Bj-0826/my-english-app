@@ -12,30 +12,27 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 
 # 3. 데이터 불러오기 함수
 def load_data():
-    # 실시간 반영을 위해 캐시(ttl)를 0으로 설정
     return conn.read(ttl="0s")
 
 df = load_data()
 
 # 4. [기능] 새 문장 저장 및 입력창 비우기 함수
 def save_and_clear():
-    # 사이드바 입력창의 key 값을 가져옴
+    # 사이드바 입력창의 값 가져오기
     new_en = st.session_state.en_input
     new_ko = st.session_state.ko_input
     
     if new_en and new_ko:
-        # 데이터프레임 생성
         new_row = pd.DataFrame([{
             "date": str(datetime.date.today()),
             "english": new_en,
             "korean": new_ko,
             "memorized": "False"
         }])
-        # 기존 데이터에 추가 후 구글 시트 업데이트
         updated_df = pd.concat([df, new_row], ignore_index=True)
         conn.update(data=updated_df)
         
-        # 입력창 상태 비우기
+        # 사이드바 입력창 비우기
         st.session_state.en_input = ""
         st.session_state.ko_input = ""
         
@@ -60,22 +57,21 @@ with tab1:
         sorted_df = df.iloc[::-1]
         st.dataframe(sorted_df, use_container_width=True)
     else:
-        st.info("아직 저장된 문장이 없어요. 사이드바에서 추가해보세요!")
+        st.info("아직 저장된 문장이 없어요.")
 
 with tab2:
     st.subheader("오늘의 복습 퀴즈")
     if not df.empty:
-        # 퀴즈용 인덱스가 없으면 랜덤으로 하나 생성
+        # 퀴즈용 인덱스 생성
         if 'quiz_idx' not in st.session_state:
             st.session_state.quiz_idx = df.sample(n=1).index[0]
         
         target = df.loc[st.session_state.quiz_idx]
         st.info(f"**뜻:** {target['korean']}")
         
-        # 답변 입력창 (key를 부여하여 상태 관리)
+        # 답변 입력창
         quiz_answer = st.text_input("위 문장의 영어는 무엇일까요?", key="quiz_input")
         
-        # 정답 확인 버튼
         if st.button("정답 확인"):
             if quiz_answer.strip().lower() == str(target['english']).strip().lower():
                 st.balloons()
@@ -83,14 +79,18 @@ with tab2:
             else:
                 st.error(f"❌ 아쉽네요! 정답은 : **{target['english']}**")
 
-        # --- 다음 문제로 넘어가기 위한 초기화 로직 ---
+        # --- 에러 해결 포인트: 다음 문제로 넘어가기 ---
         if st.button("다른 문제 풀기 (새로고침)"):
-            # 세션에서 인덱스와 입력창 값 삭제
+            # 1. 퀴즈 인덱스 삭제 (새 문제 로드를 위해)
             if 'quiz_idx' in st.session_state:
                 del st.session_state.quiz_idx
+            
+            # 2. 핵심: 값을 ""로 대입하지 않고, 아예 삭제(del)합니다.
+            # 그러면 Streamlit이 'quiz_input'이라는 상태를 새로 깨끗하게 만듭니다.
             if 'quiz_input' in st.session_state:
-                st.session_state.quiz_input = ""
-            st.rerun() # 앱 재실행으로 새 문제 로드
+                del st.session_state.quiz_input
+            
+            st.rerun() # 앱 재실행
             
     else:
-        st.warning("테스트할 문장이 없습니다. 먼저 문장을 추가해주세요.")
+        st.warning("테스트할 문장이 없습니다.")
