@@ -5,43 +5,35 @@ import datetime
 import plotly.graph_objects as go
 
 # 1. 앱 설정
-st.set_page_config(page_title="Byungjoo Manager Pro v2.1", layout="wide")
+st.set_page_config(page_title="Byungjoo Manager Pro v2.3", layout="wide")
 
 # 2. 구글 시트 연결
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- [도우미 함수: v43 로직 정밀 이식] ---
+# --- [도우미 함수] ---
 def get_w_label_python(w_key):
-    """v43의 getWLabel 함수를 파이썬으로 완벽 이식"""
+    """Y2026W13 형태를 '3월 4주 (W13)'로 변환"""
     try:
-        year_part = w_key[1:5] if 'Y' in w_key else "2026"
-        week_part = w_key.split('W')[1] if 'W' in w_key else w_key
-        year = int(year_part)
-        week_num = int(week_part)
-        # 주차의 시작일 계산
+        year = int(w_key[1:5])
+        week_num = int(w_key.split('W')[1])
         d = datetime.date(year, 1, 1) + datetime.timedelta(weeks=week_num-1)
         return f"{d.month}월 {((d.day-1)//7)+1}주 (W{week_num})"
     except: return w_key
 
 @st.cache_data(ttl=0)
 def load_data(s_name):
-    """데이터 로드 및 형식 강제 변환 (에러 방지)"""
     try:
         df = conn.read(worksheet=s_name)
         if df is not None and not df.empty:
             df['amount'] = pd.to_numeric(df['amount'].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
-            df['date'] = df['date'].astype(str).str.strip() # 문자열로 비교하기 위해 공백 제거
+            df['date'] = df['date'].astype(str).str.strip()
             return df
         return pd.DataFrame(columns=["date", "account", "amount", "memo"])
     except: return pd.DataFrame(columns=["date", "account", "amount", "memo"])
 
-# --- [핵심 수정: 저장 및 입력창 비우기 콜백] ---
-def save_pension():
-    s_name = "Data"
-    date_val = st.session_state.p_date.strftime("%Y-%m")
-    acc = st.session_state.p_acc
-    amt = st.session_state.p_amt
-    
+# --- [입력창 초기화 포함 저장 로직] ---
+def handle_save(s_name, date_val, acc, amt_key):
+    amt = st.session_state[amt_key]
     df = load_data(s_name)
     mask = (df['date'] == date_val) & (df['account'] == acc)
     
@@ -52,113 +44,98 @@ def save_pension():
         df = pd.concat([df, new_row], ignore_index=True)
     
     conn.update(worksheet=s_name, data=df)
-    # 입력창 초기화
-    st.session_state.p_amt = 0
-    st.success(f"[{acc}] 업데이트 완료!")
-
-def save_personal():
-    s_name = "PersonalData"
-    date_val = f"Y{st.session_state.per_y}W{st.session_state.per_w}"
-    acc = st.session_state.per_acc
-    amt = st.session_state.per_amt
     
-    df = load_data(s_name)
-    mask = (df['date'] == date_val) & (df['account'] == acc)
-    
-    if mask.any():
-        df.loc[mask, 'amount'] = int(amt)
-    else:
-        new_row = pd.DataFrame([{"date": date_val, "account": acc, "amount": int(amt), "memo": ""}])
-        df = pd.concat([df, new_row], ignore_index=True)
-    
-    conn.update(worksheet=s_name, data=df)
-    st.session_state.per_amt = 0
-    st.success(f"[{acc}] 업데이트 완료!")
+    # 핵심: 입력창 값 0으로 초기화
+    st.session_state[amt_key] = 0
+    st.success(f"[{acc}] 저장 및 업데이트 완료!")
 
 # --- [사이드바 메뉴] ---
 with st.sidebar:
-    st.title("Byungjoo Pro v2.1")
+    st.title("Byungjoo Pro v2.3")
     menu = st.radio("메뉴", ["💰 연금자산", "💵 개인자산", "🔤 영어공부"])
     st.divider()
     ret_date = datetime.date(2028, 12, 31)
     d_day = (ret_date - datetime.date.today()).days
     st.metric("은퇴 D-Day", f"D-{d_day}")
 
-# --- [메인 로직] ---
+# --- [메인 화면 로직] ---
 
 if menu == "💰 연금자산":
     st.header("💰 연금자산 관리 (월 단위)")
     df_pen = load_data("Data")
-    
-    tab1, tab2 = st.tabs(["📊 대시보드", "📝 데이터 입력"])
+    tab1, tab2 = st.tabs(["📊 월간 대시보드", "📝 데이터 입력/수정"])
     
     with tab1:
         if not df_pen.empty:
-            monthly = df_pen.groupby('date')['amount'].sum().reset_index().sort_values('date')
-            cur_p = monthly.iloc[-1]['amount']
-            prev_p = monthly.iloc[-2]['amount'] if len(monthly) > 1 else cur_p
-            diff = cur_p - prev_p
+            all_months = sorted(df_pen['date'].unique())
+            sel_m = st.selectbox("조회할 월 선택", all_months, index=len(all_months)-1)
+            target_df = df_pen[df_pen['date'] == sel_m]
+            cur_p = target_df['amount'].sum()
             
-            # 은퇴 시뮬레이션 v43
             mon_left = (ret_date.year - datetime.date.today().year) * 12 + (ret_date.month - datetime.date.today().month)
             est_total = cur_p + (2800000 * mon_left) + 390000000
             rate = (est_total / 1200000000) * 100
             
             c1, c2 = st.columns(2)
-            c1.metric(f"{monthly.iloc[-1]['date']} 총 연금", f"{int(cur_p):,}원", f"{int(diff):,}원")
+            c1.metric(f"{sel_m} 총 연금", f"{int(cur_p):,}원")
             c2.metric("은퇴 달성률", f"{rate:.1f}%", f"예상: {est_total/100000000:.1f}억")
             
-            # 그래프 수정: 월 단위를 문자열로 취급하여 주간 단위 변환 방지
+            monthly_trend = df_pen.groupby('date')['amount'].sum().reset_index()
             fig = go.Figure()
-            fig.add_trace(go.Scatter(x=monthly['date'], y=monthly['amount'], mode='lines+markers+text', 
-                                     text=[f"{v/100000000:.1f}억" for v in monthly['amount']], 
-                                     textposition="top center", name="연금추이"))
-            fig.update_layout(title="월별 연금자산 성장", xaxis_type='category', height=400)
+            fig.add_trace(go.Scatter(x=monthly_trend['date'], y=monthly_trend['amount'], mode='lines+markers+text', 
+                                     text=[f"{v/100000000:.1f}억" for v in monthly_trend['amount']], name="연금추이"))
+            fig.update_layout(xaxis_type='category', height=400)
             st.plotly_chart(fig, use_container_width=True)
         else: st.info("데이터가 없습니다.")
 
     with tab2:
         st.subheader("연금 정보 입력")
-        st.date_input("기준 월", datetime.date.today(), key="p_date")
-        st.selectbox("항목", ['퇴직연금', 'IRP', 'ISA', '개인연금'], key="p_acc")
-        st.number_input("금액(원)", step=100000, key="p_amt")
-        st.button("저장하기", on_click=save_pension)
+        c1, c2 = st.columns(2)
+        with c1: p_year = st.selectbox("연도", [2026, 2027, 2028], key="py")
+        with c2: p_month = st.selectbox("월", [f"{i:02d}" for i in range(1, 13)], index=datetime.date.today().month-1, key="pm")
+        
+        t_date = f"{p_year}-{p_month}"
+        p_acc = st.selectbox("항목", ['퇴직연금', 'IRP', 'ISA', '개인연금'], key="pa")
+        st.number_input("금액(원)", step=100000, key="p_amount")
+        
+        st.button("연금 데이터 저장", on_click=handle_save, args=("Data", t_date, p_acc, "p_amount"))
 
 elif menu == "💵 개인자산 관리":
     st.header("💵 개인자산 관리 (주 단위)")
     df_per = load_data("PersonalData")
-    
-    tab1, tab2 = st.tabs(["📊 주간 대시보드", "📝 데이터 입력"])
+    tab1, tab2 = st.tabs(["📊 주간 대시보드", "📝 데이터 입력/수정"])
     
     with tab1:
         if not df_per.empty:
-            # 주간 데이터 라벨 적용
-            weekly_sum = df_per.groupby('date')['amount'].sum().reset_index().sort_values('date')
-            cur_w_label = get_w_label_python(weekly_sum.iloc[-1]['date'])
-            st.metric(f"{cur_w_label} 총 자산", f"{int(weekly_sum.iloc[-1]['amount']):,}원")
+            all_weeks = sorted(df_per['date'].unique())
+            sel_w = st.selectbox("조회할 주차 선택", all_weeks, index=len(all_weeks)-1, format_func=get_w_label_python)
+            target_df = df_per[df_per['date'] == sel_w]
+            cur_w = target_df['amount'].sum()
+            st.metric(f"{get_w_label_python(sel_w)} 총 자산", f"{int(cur_w):,}원")
             
             fig = go.Figure()
-            # 계좌별 스택 차트
             for acc in df_per['account'].unique():
                 acc_df = df_per[df_per['account'] == acc].sort_values('date')
-                # 날짜를 라벨로 변환하여 표시
                 labels = [get_w_label_python(d) for d in acc_df['date']]
                 fig.add_trace(go.Bar(x=labels, y=acc_df['amount'], name=acc))
-            
-            fig.update_layout(barmode='stack', title="주차별 계좌 비중", xaxis_type='category', height=450)
+            fig.update_layout(barmode='stack', xaxis_type='category', height=450)
             st.plotly_chart(fig, use_container_width=True)
         else: st.info("데이터가 없습니다.")
 
     with tab2:
         st.subheader("개인 자산 입력")
-        st.selectbox("연도", [2026, 2027, 2028], key="per_y")
-        st.number_input("주차(Week)", min_value=1, max_value=53, value=13, key="per_w")
-        st.selectbox("계좌", ['KB증권', '삼성증권', '카카오', '한투증권', '현금/기타'], key="per_acc")
-        st.number_input("금액(원)", step=10000, key="per_amt")
-        st.button("개인 자산 저장", on_click=save_personal)
+        c1, c2 = st.columns(2)
+        with c1: per_y = st.selectbox("연도", [2026, 2027, 2028], key="pery")
+        with c2: per_w = st.number_input("주차(Week)", min_value=1, max_value=53, value=13, key="perw")
+        
+        t_week = f"Y{per_y}W{per_w}"
+        st.caption(f"선택 주차: {get_w_label_python(t_week)}")
+        p_acc = st.selectbox("계좌", ['KB증권', '삼성증권', '카카오', '한투증권', '현금/기타'], key="per_a")
+        st.number_input("금액(원)", step=10000, key="per_amount")
+        
+        st.button("개인 자산 저장", on_click=handle_save, args=("PersonalData", t_week, p_acc, "per_amount"))
 
 else:
-    # 기존 영어 학습 로직
     st.header("🔤 Byungjoo의 영어 공부")
     df_en = load_data("Sheet1")
     st.dataframe(df_en.iloc[::-1], use_container_width=True)
