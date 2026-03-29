@@ -5,14 +5,13 @@ import datetime
 import plotly.graph_objects as go
 
 # 1. 앱 설정
-st.set_page_config(page_title="Byungjoo Manager Pro v2.3", layout="wide")
+st.set_page_config(page_title="Byungjoo Manager Pro v2.4", layout="wide")
 
 # 2. 구글 시트 연결
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 # --- [도우미 함수] ---
 def get_w_label_python(w_key):
-    """Y2026W13 형태를 '3월 4주 (W13)'로 변환"""
     try:
         year = int(w_key[1:5])
         week_num = int(w_key.split('W')[1])
@@ -31,7 +30,7 @@ def load_data(s_name):
         return pd.DataFrame(columns=["date", "account", "amount", "memo"])
     except: return pd.DataFrame(columns=["date", "account", "amount", "memo"])
 
-# --- [입력창 초기화 포함 저장 로직] ---
+# --- [입력창 유지 및 초기화 저장 로직] ---
 def handle_save(s_name, date_val, acc, amt_key):
     amt = st.session_state[amt_key]
     df = load_data(s_name)
@@ -45,13 +44,13 @@ def handle_save(s_name, date_val, acc, amt_key):
     
     conn.update(worksheet=s_name, data=df)
     
-    # 핵심: 입력창 값 0으로 초기화
+    # 입력창 값 0으로 초기화 (화면은 현재 탭 유지)
     st.session_state[amt_key] = 0
-    st.success(f"[{acc}] 저장 및 업데이트 완료!")
+    st.toast(f"✅ [{acc}] 저장 및 업데이트 완료!", icon="💰")
 
 # --- [사이드바 메뉴] ---
 with st.sidebar:
-    st.title("Byungjoo Pro v2.3")
+    st.title("Byungjoo Pro v2.4")
     menu = st.radio("메뉴", ["💰 연금자산", "💵 개인자산", "🔤 영어공부"])
     st.divider()
     ret_date = datetime.date(2028, 12, 31)
@@ -63,12 +62,13 @@ with st.sidebar:
 if menu == "💰 연금자산":
     st.header("💰 연금자산 관리 (월 단위)")
     df_pen = load_data("Data")
+    # '데이터 입력/수정' 탭을 기본(index=1)으로 설정할 수도 있지만, 대시보드와 선택 가능하게 둠
     tab1, tab2 = st.tabs(["📊 월간 대시보드", "📝 데이터 입력/수정"])
     
     with tab1:
         if not df_pen.empty:
             all_months = sorted(df_pen['date'].unique())
-            sel_m = st.selectbox("조회할 월 선택", all_months, index=len(all_months)-1)
+            sel_m = st.selectbox("조회할 월 선택", all_months, index=len(all_months)-1, key="view_m")
             target_df = df_pen[df_pen['date'] == sel_m]
             cur_p = target_df['amount'].sum()
             
@@ -86,10 +86,9 @@ if menu == "💰 연금자산":
                                      text=[f"{v/100000000:.1f}억" for v in monthly_trend['amount']], name="연금추이"))
             fig.update_layout(xaxis_type='category', height=400)
             st.plotly_chart(fig, use_container_width=True)
-        else: st.info("데이터가 없습니다.")
 
     with tab2:
-        st.subheader("연금 정보 입력")
+        st.subheader("연금 정보 입력/수정")
         c1, c2 = st.columns(2)
         with c1: p_year = st.selectbox("연도", [2026, 2027, 2028], key="py")
         with c2: p_month = st.selectbox("월", [f"{i:02d}" for i in range(1, 13)], index=datetime.date.today().month-1, key="pm")
@@ -98,6 +97,7 @@ if menu == "💰 연금자산":
         p_acc = st.selectbox("항목", ['퇴직연금', 'IRP', 'ISA', '개인연금'], key="pa")
         st.number_input("금액(원)", step=100000, key="p_amount")
         
+        # handle_save 실행 후에도 tab2에 머무름
         st.button("연금 데이터 저장", on_click=handle_save, args=("Data", t_date, p_acc, "p_amount"))
 
 elif menu == "💵 개인자산 관리":
@@ -108,7 +108,7 @@ elif menu == "💵 개인자산 관리":
     with tab1:
         if not df_per.empty:
             all_weeks = sorted(df_per['date'].unique())
-            sel_w = st.selectbox("조회할 주차 선택", all_weeks, index=len(all_weeks)-1, format_func=get_w_label_python)
+            sel_w = st.selectbox("조회할 주차 선택", all_weeks, index=len(all_weeks)-1, format_func=get_w_label_python, key="view_w")
             target_df = df_per[df_per['date'] == sel_w]
             cur_w = target_df['amount'].sum()
             st.metric(f"{get_w_label_python(sel_w)} 총 자산", f"{int(cur_w):,}원")
@@ -120,10 +120,9 @@ elif menu == "💵 개인자산 관리":
                 fig.add_trace(go.Bar(x=labels, y=acc_df['amount'], name=acc))
             fig.update_layout(barmode='stack', xaxis_type='category', height=450)
             st.plotly_chart(fig, use_container_width=True)
-        else: st.info("데이터가 없습니다.")
 
     with tab2:
-        st.subheader("개인 자산 입력")
+        st.subheader("개인 자산 입력/수정")
         c1, c2 = st.columns(2)
         with c1: per_y = st.selectbox("연도", [2026, 2027, 2028], key="pery")
         with c2: per_w = st.number_input("주차(Week)", min_value=1, max_value=53, value=13, key="perw")
