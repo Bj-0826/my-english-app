@@ -5,7 +5,7 @@ import datetime
 import plotly.graph_objects as go
 
 # 1. 앱 설정
-st.set_page_config(page_title="Byungjoo Manager Pro v3.2", layout="wide")
+st.set_page_config(page_title="Byungjoo Manager Pro v3.3", layout="wide")
 
 # 2. 구글 시트 연결
 conn = st.connection("gsheets", type=GSheetsConnection)
@@ -56,7 +56,7 @@ def handle_save_final(s_name, date_val, acc, amt_key):
 
 # --- [사이드바] ---
 with st.sidebar:
-    st.title("Byungjoo Pro v3.2")
+    st.title("Byungjoo Pro v3.3")
     menu = st.radio("메뉴", ["💰 연금자산", "💵 개인자산", "🔤 영어공부"])
     st.divider()
     ret_date = datetime.date(2028, 12, 31)
@@ -72,34 +72,36 @@ if menu == "💰 연금자산":
     
     with t1:
         if not df_p.empty:
-            # 최근 3개 기간 추출
             all_dates = sorted(df_p['date'].unique())
             recent_dates = all_dates[-3:]
             df_recent = df_p[df_p['date'].isin(recent_dates)]
             
-            # 지표 계산
             monthly_total = df_recent.groupby('date')['amount'].sum().reset_index().sort_values('date')
             cur_val = monthly_total.iloc[-1]['amount']
             prev_val = monthly_total.iloc[-2]['amount'] if len(monthly_total) > 1 else cur_val
             diff = cur_val - prev_val
             diff_per = (diff / prev_val * 100) if prev_val != 0 else 0
             
-            # 은퇴 시뮬레이션
             mon_left = (ret_date.year - datetime.date.today().year) * 12 + (ret_date.month - datetime.date.today().month)
             est_total = cur_val + (2800000 * mon_left) + 390000000
             rate = (est_total / 1200000000) * 100
             
-            c1, c2, c3 = st.columns(3)
-            c1.metric(f"{recent_dates[-1]} 합계", f"{int(cur_val):,}원", f"{diff_per:.1f}% ({int(diff):,}원)")
-            c2.metric("은퇴 달성률", f"{rate:.1f}%", f"예상: {est_total/100000000:.1f}억")
-            c3.info("최근 3개월 계좌별 비중 및 추이")
+            c1, col_delta, c3 = st.columns([2, 2, 1])
+            c1.metric(f"{recent_dates[-1]} 합계", f"{int(cur_val):,}원")
+            col_delta.metric("지난달 대비 증감", f"{diff_per:+.1f}%", f"{int(diff):+,}원")
             
-            # 계좌별 Stack Bar Chart (개인자산 스타일로 통일)
+            # 그래프 (툴팁 최적화)
             fig = go.Figure()
             for acc in sorted(df_recent['account'].unique()):
                 acc_df = df_recent[df_recent['account'] == acc].sort_values('date')
-                fig.add_trace(go.Bar(x=acc_df['date'], y=acc_df['amount'], name=acc))
-            fig.update_layout(barmode='stack', xaxis_type='category', height=450, margin=dict(t=20, b=20))
+                # hovertemplate 설정: 일자 제외, 상품명과 원 단위 금액 표시
+                fig.add_trace(go.Bar(
+                    x=acc_df['date'], 
+                    y=acc_df['amount'], 
+                    name=acc,
+                    hovertemplate="<b>%{fullData.name}</b><br>금액: %{y:,.0f}원<extra></extra>"
+                ))
+            fig.update_layout(barmode='stack', xaxis_type='category', height=450)
             st.plotly_chart(fig, use_container_width=True)
         else: st.info("데이터가 없습니다.")
 
@@ -118,28 +120,32 @@ elif menu == "💵 개인자산":
     
     with t1:
         if not df_per.empty:
-            # 최근 3개 기간 추출
             all_w = sorted(df_per['date'].unique())
             recent_w = all_w[-3:]
             df_recent = df_per[df_per['date'].isin(recent_w)]
             
-            # 지표 계산
             weekly_total = df_recent.groupby('date')['amount'].sum().reset_index().sort_values('date')
             cur_w_val = weekly_total.iloc[-1]['amount']
             prev_w_val = weekly_total.iloc[-2]['amount'] if len(weekly_total) > 1 else cur_w_val
             w_diff = cur_w_val - prev_w_val
             w_diff_per = (w_diff / prev_w_val * 100) if prev_w_val != 0 else 0
             
-            c1, c2 = st.columns(2)
-            c1.metric(f"{get_w_label_python(recent_w[-1])} 합계", f"{int(cur_w_val):,}원", f"{w_diff_per:.1f}% ({int(w_diff):,}원)")
-            c2.info("최근 3주간의 계좌별 자산 구성입니다.")
+            c1, col_delta = st.columns(2)
+            c1.metric(f"{get_w_label_python(recent_w[-1])} 합계", f"{int(cur_w_val):,}원")
+            col_delta.metric("지난주 대비 증감", f"{w_diff_per:+.1f}%", f"{int(w_diff):+,}원")
             
-            # 계좌별 Stack Bar Chart
+            # 그래프 (툴팁 최적화)
             fig = go.Figure()
             for acc in sorted(df_recent['account'].unique()):
                 acc_df = df_recent[df_recent['account'] == acc].sort_values('date')
-                fig.add_trace(go.Bar(x=[get_w_label_python(d) for d in acc_df['date']], y=acc_df['amount'], name=acc))
-            fig.update_layout(barmode='stack', xaxis_type='category', height=450, margin=dict(t=20, b=20))
+                # hovertemplate 설정: 일자 제외, 계좌명과 원 단위 금액 표시
+                fig.add_trace(go.Bar(
+                    x=[get_w_label_python(d) for d in acc_df['date']], 
+                    y=acc_df['amount'], 
+                    name=acc,
+                    hovertemplate="<b>%{fullData.name}</b><br>금액: %{y:,.0f}원<extra></extra>"
+                ))
+            fig.update_layout(barmode='stack', xaxis_type='category', height=450)
             st.plotly_chart(fig, use_container_width=True)
         else: st.info("데이터가 없습니다.")
 
