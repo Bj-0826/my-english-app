@@ -5,12 +5,12 @@ import datetime
 import plotly.graph_objects as go
 
 # 1. 앱 설정
-st.set_page_config(page_title="Byungjoo Manager Pro v3.3", layout="wide")
+st.set_page_config(page_title="Byungjoo Manager Pro v3.4", layout="wide")
 
 # 2. 구글 시트 연결
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- [공통 도우미 함수] ---
+# --- [도우미 함수] ---
 def get_w_label_python(w_key):
     try:
         w_key = str(w_key).upper().strip()
@@ -30,6 +30,8 @@ def load_data_safe(s_name):
             df['amount'] = pd.to_numeric(df['amount'].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
             df['date'] = df['date'].astype(str).str.upper().str.strip()
             df['account'] = df['account'].astype(str).str.strip()
+        elif s_name == "Sheet1":
+            df = df.dropna(subset=['english'])
         return df
     except: return pd.DataFrame()
 
@@ -56,7 +58,7 @@ def handle_save_final(s_name, date_val, acc, amt_key):
 
 # --- [사이드바] ---
 with st.sidebar:
-    st.title("Byungjoo Pro v3.3")
+    st.title("Byungjoo Pro v3.4")
     menu = st.radio("메뉴", ["💰 연금자산", "💵 개인자산", "🔤 영어공부"])
     st.divider()
     ret_date = datetime.date(2028, 12, 31)
@@ -75,7 +77,6 @@ if menu == "💰 연금자산":
             all_dates = sorted(df_p['date'].unique())
             recent_dates = all_dates[-3:]
             df_recent = df_p[df_p['date'].isin(recent_dates)]
-            
             monthly_total = df_recent.groupby('date')['amount'].sum().reset_index().sort_values('date')
             cur_val = monthly_total.iloc[-1]['amount']
             prev_val = monthly_total.iloc[-2]['amount'] if len(monthly_total) > 1 else cur_val
@@ -90,17 +91,10 @@ if menu == "💰 연금자산":
             c1.metric(f"{recent_dates[-1]} 합계", f"{int(cur_val):,}원")
             col_delta.metric("지난달 대비 증감", f"{diff_per:+.1f}%", f"{int(diff):+,}원")
             
-            # 그래프 (툴팁 최적화)
             fig = go.Figure()
             for acc in sorted(df_recent['account'].unique()):
                 acc_df = df_recent[df_recent['account'] == acc].sort_values('date')
-                # hovertemplate 설정: 일자 제외, 상품명과 원 단위 금액 표시
-                fig.add_trace(go.Bar(
-                    x=acc_df['date'], 
-                    y=acc_df['amount'], 
-                    name=acc,
-                    hovertemplate="<b>%{fullData.name}</b><br>금액: %{y:,.0f}원<extra></extra>"
-                ))
+                fig.add_trace(go.Bar(x=acc_df['date'], y=acc_df['amount'], name=acc, hovertemplate="<b>%{fullData.name}</b><br>금액: %{y:,.0f}원<extra></extra>"))
             fig.update_layout(barmode='stack', xaxis_type='category', height=450)
             st.plotly_chart(fig, use_container_width=True)
         else: st.info("데이터가 없습니다.")
@@ -123,7 +117,6 @@ elif menu == "💵 개인자산":
             all_w = sorted(df_per['date'].unique())
             recent_w = all_w[-3:]
             df_recent = df_per[df_per['date'].isin(recent_w)]
-            
             weekly_total = df_recent.groupby('date')['amount'].sum().reset_index().sort_values('date')
             cur_w_val = weekly_total.iloc[-1]['amount']
             prev_w_val = weekly_total.iloc[-2]['amount'] if len(weekly_total) > 1 else cur_w_val
@@ -134,17 +127,10 @@ elif menu == "💵 개인자산":
             c1.metric(f"{get_w_label_python(recent_w[-1])} 합계", f"{int(cur_w_val):,}원")
             col_delta.metric("지난주 대비 증감", f"{w_diff_per:+.1f}%", f"{int(w_diff):+,}원")
             
-            # 그래프 (툴팁 최적화)
             fig = go.Figure()
             for acc in sorted(df_recent['account'].unique()):
                 acc_df = df_recent[df_recent['account'] == acc].sort_values('date')
-                # hovertemplate 설정: 일자 제외, 계좌명과 원 단위 금액 표시
-                fig.add_trace(go.Bar(
-                    x=[get_w_label_python(d) for d in acc_df['date']], 
-                    y=acc_df['amount'], 
-                    name=acc,
-                    hovertemplate="<b>%{fullData.name}</b><br>금액: %{y:,.0f}원<extra></extra>"
-                ))
+                fig.add_trace(go.Bar(x=[get_w_label_python(d) for d in acc_df['date']], y=acc_df['amount'], name=acc, hovertemplate="<b>%{fullData.name}</b><br>금액: %{y:,.0f}원<extra></extra>"))
             fig.update_layout(barmode='stack', xaxis_type='category', height=450)
             st.plotly_chart(fig, use_container_width=True)
         else: st.info("데이터가 없습니다.")
@@ -157,7 +143,41 @@ elif menu == "💵 개인자산":
         st.number_input("금액(원)", step=10000, key="per_amt")
         st.button("개인자산 저장", on_click=handle_save_final, args=("PersonalData", f"Y{pery}W{perw}", p_acc_per, "per_amt"))
 
+# --- [영어 공부 섹션 복구] ---
 else:
-    st.header("🔤 영어 공부")
+    st.header("🔤 Byungjoo의 영어 공부")
     df_en = load_data_safe("Sheet1")
-    if not df_en.empty: st.dataframe(df_en.iloc[::-1], use_container_width=True)
+    tab_list, tab_input, tab_quiz = st.tabs(["📖 문장 리스트", "✍️ 문장 입력", "🧠 퀴즈 테스트"])
+    
+    with tab_list:
+        if not df_en.empty:
+            st.dataframe(df_en.iloc[::-1], use_container_width=True)
+        else: st.info("저장된 문장이 없습니다.")
+        
+    with tab_input:
+        st.subheader("새로운 영어 문장 추가")
+        new_en = st.text_input("영어 문장")
+        new_ko = st.text_input("한글 뜻")
+        if st.button("문장 저장"):
+            if new_en and new_ko:
+                new_row = pd.DataFrame([{"date": str(datetime.date.today()), "english": new_en, "korean": new_ko, "memorized": "False"}])
+                df_en = pd.concat([df_en, new_row], ignore_index=True)
+                conn.update(worksheet="Sheet1", data=df_en)
+                st.success("영어 문장이 저장되었습니다!")
+                st.rerun()
+            else: st.warning("내용을 모두 입력해주세요.")
+
+    with tab_quiz:
+        if not df_en.empty:
+            if 'q_idx' not in st.session_state: st.session_state.q_idx = df_en.sample(n=1).index[0]
+            q = df_en.loc[st.session_state.q_idx]
+            st.info(f"뜻: {q['korean']}")
+            ans = st.text_input("영어로 입력하세요", key="q_in")
+            if st.button("정답 확인"):
+                if ans.strip().lower() == str(q['english']).strip().lower(): 
+                    st.success("정답입니다!"); st.balloons()
+                else: st.error(f"오답입니다. 정답: {q['english']}")
+            if st.button("다음 문제"):
+                del st.session_state.q_idx
+                st.rerun()
+        else: st.info("문장이 없습니다.")
