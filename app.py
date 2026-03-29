@@ -5,12 +5,12 @@ import datetime
 import plotly.graph_objects as go
 
 # 1. 앱 설정
-st.set_page_config(page_title="Byungjoo Manager Pro v3.1", layout="wide")
+st.set_page_config(page_title="Byungjoo Manager Pro v3.2", layout="wide")
 
 # 2. 구글 시트 연결
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- [도우미 함수] ---
+# --- [공통 도우미 함수] ---
 def get_w_label_python(w_key):
     try:
         w_key = str(w_key).upper().strip()
@@ -29,12 +29,10 @@ def load_data_safe(s_name):
             df = df.dropna(subset=['date', 'account'])
             df['amount'] = pd.to_numeric(df['amount'].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
             df['date'] = df['date'].astype(str).str.upper().str.strip()
-        else:
-            df = df.dropna(subset=['english'])
+            df['account'] = df['account'].astype(str).str.strip()
         return df
     except: return pd.DataFrame()
 
-# --- [통합 저장 로직] ---
 def handle_save_final(s_name, date_val, acc, amt_key):
     amt_val = st.session_state[amt_key]
     if amt_val <= 0:
@@ -58,7 +56,7 @@ def handle_save_final(s_name, date_val, acc, amt_key):
 
 # --- [사이드바] ---
 with st.sidebar:
-    st.title("Byungjoo Pro v3.1")
+    st.title("Byungjoo Pro v3.2")
     menu = st.radio("메뉴", ["💰 연금자산", "💵 개인자산", "🔤 영어공부"])
     st.divider()
     ret_date = datetime.date(2028, 12, 31)
@@ -68,86 +66,90 @@ with st.sidebar:
 # --- [메인 로직] ---
 
 if menu == "💰 연금자산":
-    st.header("💰 연금자산 관리 (최근 3개월 분석)")
+    st.header("💰 연금자산 관리 (최근 3개월)")
     df_p = load_data_safe("Data")
     t1, t2 = st.tabs(["📊 대시보드", "📝 입력/수정"])
     
     with t1:
         if not df_p.empty:
-            # 1. 최근 3개월 데이터 추출
-            monthly_total = df_p.groupby('date')['amount'].sum().reset_index().sort_values('date')
-            recent_3m = monthly_total.tail(3)
+            # 최근 3개 기간 추출
+            all_dates = sorted(df_p['date'].unique())
+            recent_dates = all_dates[-3:]
+            df_recent = df_p[df_p['date'].isin(recent_dates)]
             
-            # 2. 증감률 계산 (Delta)
-            cur_m_val = recent_3m.iloc[-1]['amount']
-            prev_m_val = recent_3m.iloc[-2]['amount'] if len(recent_3m) > 1 else cur_m_val
-            delta_val = cur_m_val - prev_m_val
-            delta_percent = (delta_val / prev_m_val * 100) if prev_m_val != 0 else 0
+            # 지표 계산
+            monthly_total = df_recent.groupby('date')['amount'].sum().reset_index().sort_values('date')
+            cur_val = monthly_total.iloc[-1]['amount']
+            prev_val = monthly_total.iloc[-2]['amount'] if len(monthly_total) > 1 else cur_val
+            diff = cur_val - prev_val
+            diff_per = (diff / prev_val * 100) if prev_val != 0 else 0
             
-            # 은퇴 계산기
+            # 은퇴 시뮬레이션
             mon_left = (ret_date.year - datetime.date.today().year) * 12 + (ret_date.month - datetime.date.today().month)
-            est_total = cur_m_val + (2800000 * mon_left) + 390000000
+            est_total = cur_val + (2800000 * mon_left) + 390000000
             rate = (est_total / 1200000000) * 100
             
-            col1, col2, col3 = st.columns(3)
-            col1.metric("현재 총 연금", f"{int(cur_m_val):,}원", f"{delta_percent:.1f}% ({int(delta_val):,}원)")
-            col2.metric("은퇴 달성률", f"{rate:.1f}%", f"예상: {est_total/100000000:.1f}억")
-            col3.metric("기준 월", recent_3m.iloc[-1]['date'])
+            c1, c2, c3 = st.columns(3)
+            c1.metric(f"{recent_dates[-1]} 합계", f"{int(cur_val):,}원", f"{diff_per:.1f}% ({int(diff):,}원)")
+            c2.metric("은퇴 달성률", f"{rate:.1f}%", f"예상: {est_total/100000000:.1f}억")
+            c3.info("최근 3개월 계좌별 비중 및 추이")
             
-            # 3개월 그래프
-            fig = go.Figure(go.Scatter(x=recent_3m['date'], y=recent_3m['amount'], mode='lines+markers+text', 
-                                     text=[f"{v/100000000:.2f}억" for v in recent_3m['amount']], textposition="top center"))
-            fig.update_layout(xaxis_type='category', title="최근 3개월 연금 추이", height=400)
+            # 계좌별 Stack Bar Chart (개인자산 스타일로 통일)
+            fig = go.Figure()
+            for acc in sorted(df_recent['account'].unique()):
+                acc_df = df_recent[df_recent['account'] == acc].sort_values('date')
+                fig.add_trace(go.Bar(x=acc_df['date'], y=acc_df['amount'], name=acc))
+            fig.update_layout(barmode='stack', xaxis_type='category', height=450, margin=dict(t=20, b=20))
             st.plotly_chart(fig, use_container_width=True)
         else: st.info("데이터가 없습니다.")
 
     with t2:
         c1, c2 = st.columns(2)
-        with c1: py = st.selectbox("연도", [2026, 2027, 2028], key="py_p")
-        with c2: pm = st.selectbox("월", [f"{i:02d}" for i in range(1, 13)], index=datetime.date.today().month-1, key="pm_p")
-        t_date = f"{py}-{pm}"
-        p_acc = st.selectbox("항목", ['퇴직연금', 'IRP', 'ISA', '개인연금'], key="pa_p")
-        st.number_input("금액(원)", step=100000, key="p_amt_p")
-        st.button("연금 저장", on_click=handle_save_final, args=("Data", t_date, p_acc, "p_amt_p"))
+        with c1: py = st.selectbox("연도", [2026, 2027, 2028], key="p_y")
+        with c2: pm = st.selectbox("월", [f"{i:02d}" for i in range(1, 13)], index=datetime.date.today().month-1, key="p_m")
+        p_acc = st.selectbox("항목", ['퇴직연금', 'IRP', 'ISA', '개인연금'], key="p_a")
+        st.number_input("금액(원)", step=100000, key="p_amt")
+        st.button("연금 저장", on_click=handle_save_final, args=("Data", f"{py}-{pm}", p_acc, "p_amt"))
 
 elif menu == "💵 개인자산":
-    st.header("💵 개인자산 관리 (최근 3주 분석)")
+    st.header("💵 개인자산 관리 (최근 3주)")
     df_per = load_data_safe("PersonalData")
     t1, t2 = st.tabs(["📊 대시보드", "📝 입력/수정"])
     
     with t1:
         if not df_per.empty:
-            # 1. 최근 3주 데이터 추출
-            weekly_total = df_per.groupby('date')['amount'].sum().reset_index().sort_values('date')
-            recent_3w = weekly_total.tail(3)
+            # 최근 3개 기간 추출
+            all_w = sorted(df_per['date'].unique())
+            recent_w = all_w[-3:]
+            df_recent = df_per[df_per['date'].isin(recent_w)]
             
-            # 2. 증감률 계산
-            cur_w_val = recent_3w.iloc[-1]['amount']
-            prev_w_val = recent_3w.iloc[-2]['amount'] if len(recent_3w) > 1 else cur_w_val
-            w_delta = cur_w_val - prev_w_val
-            w_delta_per = (w_delta / prev_w_val * 100) if prev_w_val != 0 else 0
+            # 지표 계산
+            weekly_total = df_recent.groupby('date')['amount'].sum().reset_index().sort_values('date')
+            cur_w_val = weekly_total.iloc[-1]['amount']
+            prev_w_val = weekly_total.iloc[-2]['amount'] if len(weekly_total) > 1 else cur_w_val
+            w_diff = cur_w_val - prev_w_val
+            w_diff_per = (w_diff / prev_w_val * 100) if prev_w_val != 0 else 0
             
-            col1, col2 = st.columns(2)
-            col1.metric(f"{get_w_label_python(recent_3w.iloc[-1]['date'])} 합계", f"{int(cur_w_val):,}원", f"{w_delta_per:.1f}%")
-            col2.info("최근 3주간의 자산 변동을 확인합니다.")
+            c1, c2 = st.columns(2)
+            c1.metric(f"{get_w_label_python(recent_w[-1])} 합계", f"{int(cur_w_val):,}원", f"{w_diff_per:.1f}% ({int(w_diff):,}원)")
+            c2.info("최근 3주간의 계좌별 자산 구성입니다.")
             
-            # 3주 그래프
+            # 계좌별 Stack Bar Chart
             fig = go.Figure()
-            for acc in sorted(df_per['account'].unique()):
-                acc_df = df_per[df_per['account'] == acc].sort_values('date').tail(3)
+            for acc in sorted(df_recent['account'].unique()):
+                acc_df = df_recent[df_recent['account'] == acc].sort_values('date')
                 fig.add_trace(go.Bar(x=[get_w_label_python(d) for d in acc_df['date']], y=acc_df['amount'], name=acc))
-            fig.update_layout(barmode='stack', xaxis_type='category', title="최근 3주 계좌별 비중", height=450)
+            fig.update_layout(barmode='stack', xaxis_type='category', height=450, margin=dict(t=20, b=20))
             st.plotly_chart(fig, use_container_width=True)
         else: st.info("데이터가 없습니다.")
 
     with t2:
         c1, c2 = st.columns(2)
-        with c1: pery = st.selectbox("연도", [2026, 2027, 2028], key="pery_p")
-        with c2: perw = st.number_input("주차(1-53)", 1, 53, 13, key="perw_p")
-        t_week = f"Y{pery}W{perw}"
-        p_acc_per = st.selectbox("계좌", ['KB증권', '삼성증권', '카카오', '한투증권', '현금/기타'], key="per_acc_p")
-        st.number_input("금액(원)", step=10000, key="per_amt_p")
-        st.button("개인자산 저장", on_click=handle_save_final, args=("PersonalData", t_week, p_acc_per, "per_amt_p"))
+        with c1: pery = st.selectbox("연도", [2026, 2027, 2028], key="per_y")
+        with c2: perw = st.number_input("주차(1-53)", 1, 53, 13, key="per_w")
+        p_acc_per = st.selectbox("계좌", ['KB증권', '삼성증권', '카카오', '한투증권', '현금/기타'], key="per_a")
+        st.number_input("금액(원)", step=10000, key="per_amt")
+        st.button("개인자산 저장", on_click=handle_save_final, args=("PersonalData", f"Y{pery}W{perw}", p_acc_per, "per_amt"))
 
 else:
     st.header("🔤 영어 공부")
