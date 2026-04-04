@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 import os
 
 # 1. 앱 설정
-st.set_page_config(page_title="은퇴 준비하기", layout="wide")
+st.set_page_config(page_title="은퇴 준비하기 v4.6", layout="wide")
 
 # 2. 구글 시트 연결 (원본 유지)
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1LrVto7YUbodWwGsRBQ0PR7evNnEmDtf_gNEj8gM7ngA/edit#gid=0"
@@ -79,7 +79,7 @@ def handle_save_english():
 
 # --- [사이드바] ---
 with st.sidebar:
-    st.title("Byungjoo Pro v4.6")
+    st.title("은퇴 준비하기")
     menu = st.radio("메뉴", ["💰 연금자산", "💵 개인자산", "🔤 영어공부", "📚 도서관리"])
     st.divider()
     ret_date = datetime.date(2028, 12, 31)
