@@ -5,9 +5,9 @@ import datetime
 import plotly.graph_objects as go
 
 # 1. 앱 설정
-st.set_page_config(page_title="Byungjoo Pro v3.9.5", layout="wide")
+st.set_page_config(page_title="Byungjoo Pro v3.9", layout="wide")
 
-# 2. 구글 시트 연결
+# 2. 구글 시트 연결 (어제 방식 그대로)
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 # --- [도우미 함수] ---
@@ -21,27 +21,31 @@ def get_w_label_python(w_key):
 
 def load_data_safe(s_name):
     try:
+        # 어제와 동일한 읽기 방식 (ttl=0으로 실시간 반영)
         df = conn.read(worksheet=s_name, ttl=0)
         if df is None or df.empty: return pd.DataFrame()
-        # 헤더 전처리 (공백 제거 및 소문자화)
-        df.columns = [str(c).strip().lower() for c in df.columns]
+        
+        # 데이터가 있으면 전처리
         df = df.dropna(how='all')
         if s_name in ["Data", "PersonalData"]:
             df = df.dropna(subset=['date', 'account'])
+            # 금액 콤마 제거 및 숫자 변환
             df['amount'] = pd.to_numeric(df['amount'].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
             df['date'] = df['date'].astype(str).str.upper().str.strip()
         elif s_name == "Sheet1":
             df = df.dropna(subset=['english'])
+            # 암기 상태 변환
             df['memorized'] = df['memorized'].astype(str).str.capitalize() == "True"
         return df
-    except: return pd.DataFrame()
+    except:
+        return pd.DataFrame()
 
-# --- [핵심 로직: 저장 및 수정] ---
+# --- [저장 및 수정 로직] ---
 def handle_save_asset(s_name, date_val, acc, amt_key):
     amt_val = st.session_state[amt_key]
     if amt_val <= 0: return
     df = load_data_safe(s_name)
-    # 기존 데이터 있으면 수정, 없으면 추가
+    # 기존 데이터 덮어쓰기 또는 추가
     mask = (df['date'] == str(date_val).upper()) & (df['account'] == str(acc))
     if mask.any(): 
         df.loc[mask, 'amount'] = int(amt_val)
@@ -50,7 +54,7 @@ def handle_save_asset(s_name, date_val, acc, amt_key):
         df = pd.concat([df, new_row], ignore_index=True)
     conn.update(worksheet=s_name, data=df)
     st.session_state[amt_key] = 0
-    st.toast(f"✅ {acc} 저장/수정 완료!")
+    st.toast(f"✅ {acc} 저장 완료!")
 
 def handle_save_english():
     en, ko = st.session_state.new_en, st.session_state.new_ko
@@ -68,7 +72,7 @@ def next_quiz_question():
 
 # --- [사이드바] ---
 with st.sidebar:
-    st.title("Byungjoo Pro v3.9.5")
+    st.title("Byungjoo Pro v3.9")
     menu = st.radio("메뉴", ["💰 연금자산", "💵 개인자산", "🔤 영어공부"])
     st.divider()
     ret_date = datetime.date(2028, 12, 31)
@@ -78,24 +82,18 @@ with st.sidebar:
 if menu == "💰 연금자산":
     st.header("💰 연금자산 관리")
     df_p = load_data_safe("Data")
-    t1, t2 = st.tabs(["📊 대시보드", "📝 입력 및 수정"])
-    
+    t1, t2 = st.tabs(["📊 대시보드", "📝 입력/수정"])
     with t1:
         if not df_p.empty:
-            all_dates = sorted(df_p['date'].unique())
-            recent_dates = all_dates[-3:]
+            recent_dates = sorted(df_p['date'].unique())[-3:]
             df_recent = df_p[df_p['date'].isin(recent_dates)]
-            
-            # 비교 지표
             m_total = df_recent.groupby('date')['amount'].sum().reset_index().sort_values('date')
             cur = m_total.iloc[-1]['amount']
-            prev = m_total.iloc[-2]['amount'] if len(m_total) > 1 else cur
+            prev = m_total.iloc[-2]['amount'] if len(m_total)>1 else cur
             diff = cur - prev
-            
             c1, c2 = st.columns(2)
             c1.metric(f"{recent_dates[-1]} 합계", f"{int(cur):,}원")
             c2.metric("전월 대비", f"{(diff/prev*100) if prev!=0 else 0:+.1f}%", f"{int(diff):+,}원")
-            
             fig = go.Figure()
             for acc in sorted(df_recent['account'].unique()):
                 acc_df = df_recent[df_recent['account'] == acc]
@@ -109,30 +107,25 @@ if menu == "💰 연금자산":
         py = c1.selectbox("연도", [2025, 2026, 2027, 2028], key="p_y")
         pm = c2.selectbox("월", [f"{i:02d}" for i in range(1, 13)], index=datetime.date.today().month-1, key="p_m")
         p_acc = st.selectbox("항목", ['퇴직연금', 'IRP', 'ISA', '개인연금'])
-        st.number_input("금액(원)", step=10000, key="p_amt")
-        st.button("연금 데이터 저장/수정", on_click=handle_save_asset, args=("Data", f"{py}-{pm}", p_acc, "p_amt"))
+        st.number_input("금액(원)", step=100000, key="p_amt")
+        st.button("연금 저장", on_click=handle_save_asset, args=("Data", f"{py}-{pm}", p_acc, "p_amt"))
 
 # --- [2. 개인자산] ---
 elif menu == "💵 개인자산":
     st.header("💵 개인자산 관리")
     df_per = load_data_safe("PersonalData")
-    t1, t2 = st.tabs(["📊 대시보드", "📝 입력 및 수정"])
-    
+    t1, t2 = st.tabs(["📊 대시보드", "📝 입력/수정"])
     with t1:
         if not df_per.empty:
-            all_w = sorted(df_per['date'].unique())
-            recent_w = all_w[-3:]
+            recent_w = sorted(df_per['date'].unique())[-3:]
             df_recent = df_per[df_per['date'].isin(recent_w)]
-            
             w_total = df_recent.groupby('date')['amount'].sum().reset_index().sort_values('date')
             cur = w_total.iloc[-1]['amount']
-            prev = w_total.iloc[-2]['amount'] if len(w_total) > 1 else cur
+            prev = w_total.iloc[-2]['amount'] if len(w_total)>1 else cur
             diff = cur - prev
-            
             c1, c2 = st.columns(2)
             c1.metric(f"{get_w_label_python(recent_w[-1])} 합계", f"{int(cur):,}원")
             c2.metric("전주 대비", f"{(diff/prev*100) if prev!=0 else 0:+.1f}%", f"{int(diff):+,}원")
-            
             fig = go.Figure()
             for acc in sorted(df_recent['account'].unique()):
                 acc_df = df_recent[df_recent['account'] == acc]
@@ -146,7 +139,7 @@ elif menu == "💵 개인자산":
         perw = c2.number_input("주차", 1, 53, 14, key="per_w")
         p_acc_per = st.selectbox("계좌", ['KB증권', '삼성증권', '카카오', '한투증권', '현금/기타'])
         st.number_input("금액(원)", step=10000, key="per_amt")
-        st.button("개인자산 저장/수정", on_click=handle_save_asset, args=("PersonalData", f"Y{pery}W{perw}", p_acc_per, "per_amt"))
+        st.button("개인자산 저장", on_click=handle_save_asset, args=("PersonalData", f"Y{pery}W{perw}", p_acc_per, "per_amt"))
 
 # --- [3. 영어공부] ---
 else:
