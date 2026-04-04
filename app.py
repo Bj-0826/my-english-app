@@ -4,10 +4,9 @@ import pandas as pd
 import datetime
 import plotly.graph_objects as go
 import os
-import plotly.express as px
 
 # 1. 앱 설정
-st.set_page_config(page_title="Byungjoo Pro v4.3", layout="wide")
+st.set_page_config(page_title="Byungjoo Pro v4.4", layout="wide")
 
 # 2. 구글 시트 연결 (원본 유지)
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1LrVto7YUbodWwGsRBQ0PR7evNnEmDtf_gNEj8gM7ngA/edit#gid=0"
@@ -32,14 +31,14 @@ def load_data_safe(s_name):
         st.error(f"❌ '{s_name}' 로드 실패: {e}")
         return pd.DataFrame()
 
-# --- [도서 관리 로드/저장 - 오류 방지 로직 강화] ---
+# --- [도서 관리 로드/저장 - 연도 표기 수정 반영] ---
 def load_book_data():
     if os.path.exists('books.csv'):
         try:
             df = pd.read_csv('books.csv')
             df['구입일'] = pd.to_datetime(df['구입일']).dt.date
-            df['연도'] = pd.to_datetime(df['구입일']).dt.year
-            # 별점 데이터가 비어있거나 잘못된 경우 대비
+            # 연도를 정수형으로 확실히 변환하여 .0 방지
+            df['연도'] = pd.to_datetime(df['구입일']).dt.year.fillna(0).astype(int)
             df['별점'] = pd.to_numeric(df['별점'], errors='coerce').fillna(5).astype(int)
             return df
         except:
@@ -78,13 +77,13 @@ def handle_save_english():
 
 # --- [사이드바] ---
 with st.sidebar:
-    st.title("Byungjoo Pro v4.3")
+    st.title("Byungjoo Pro v4.4")
     menu = st.radio("메뉴", ["💰 연금자산", "💵 개인자산", "🔤 영어공부", "📚 도서관리"])
     st.divider()
     ret_date = datetime.date(2028, 12, 31)
     st.metric("은퇴 D-Day", f"D-{(ret_date - datetime.date.today()).days}")
 
-# --- [메인 로직] ---
+# --- [메인 로직 - 연금/개인자산/영어는 원본 유지] ---
 if menu == "💰 연금자산":
     st.header("💰 연금자산 관리")
     df_p = load_data_safe("Data")
@@ -188,62 +187,59 @@ elif menu == "🔤 영어공부":
                 st.button("다음 문제", on_click=next_q)
             else: st.success("🎉 완료!")
 
-# --- [도서 관리 메뉴 - 요청 사항 반영] ---
+# --- [📚 도서관리 메뉴 - 4.4 업데이트] ---
 elif menu == "📚 도서관리":
     st.header("📚 도서 관리 시스템")
     df_books = load_book_data()
 
-    # (2) 개선된 상단 통계 UI (드롭다운 연도 선택)
+    # (1) 상단 통계 UI - 연도 표기 .0 제거 및 명칭 변경
     st.subheader("📊 연도별 독서 현황")
     if not df_books.empty:
         c1, c2, c3 = st.columns([1, 1, 2])
-        # 드롭다운으로 연도 선택 (기본값은 현재 연도)
         available_years = sorted(df_books['연도'].unique(), reverse=True)
-        sel_year = c1.selectbox("조회 연도 선택", options=available_years, key="stat_year_sel")
+        # 표시 형식을 '2026년'으로 변경
+        sel_year_label = c1.selectbox("조회 연도 선택", options=[f"{y}년" for y in available_years], key="stat_year_sel")
+        sel_year = int(sel_year_label.replace("년", ""))
         
-        # 선택된 연도 데이터 필터링
         year_df = df_books[df_books['연도'] == sel_year]
         
         c2.metric(f"{sel_year}년 독서량", f"{len(year_df)} 권")
-        c3.metric(f"{sel_year}년 총 지출", f"₩{int(year_df['가격'].sum()):,}")
+        c3.metric(f"{sel_year}년 도서 구입비", f"₩{int(year_df['가격'].sum()):,}")
         st.divider()
-    else:
-        st.info("등록된 도서 데이터가 없습니다.")
 
-    tab1, tab2, tab3 = st.tabs(["📖 서재 보기", "➕ 신규 등록", "⚙️ 관리/수정"])
+    tab1, tab2, tab3 = st.tabs(["📖 서재 보기 (리스트)", "➕ 신규 등록", "⚙️ 관리/수정/삭제"])
 
-    with tab1: # 필터 및 갤러리 뷰
+    with tab1: # 리스트 형식 + 넘버링 페이지네이션
         if not df_books.empty:
+            # 최신 입력순 정렬 (인덱스 역순)
+            d_view = df_books.iloc[::-1].copy()
+            
+            # 검색/필터
             f1, f2 = st.columns(2)
-            y_sel = f1.multiselect("연도 필터", options=sorted(df_books['연도'].unique(), reverse=True), key="filter_year")
-            c_sel = f2.multiselect("분류 필터", options=["경제/경영", "자기계발", "에세이", "소설", "역사", "기타"], key="filter_cat")
+            y_f = f1.multiselect("연도 필터", options=[f"{y}년" for y in available_years])
+            if y_f:
+                y_f_ints = [int(y.replace("년", "")) for y in y_f]
+                d_view = d_view[d_view['연도'].isin(y_f_ints)]
             
-            d_view = df_books.copy()
-            if y_sel: d_view = d_view[d_view['연도'].isin(y_sel)]
-            if c_sel: d_view = d_view[d_view['분류'].isin(c_sel)]
+            # 페이지네이션 로직 (10개씩)
+            items_per_page = 10
+            total_pages = (len(d_view) // items_per_page) + (1 if len(d_view) % items_per_page > 0 else 0)
             
-            # (3) TypeError 방지 로직 적용된 출력 부분
-            cols = st.columns(3)
-            for idx, (_, row) in enumerate(d_view.iterrows()):
-                with cols[idx % 3]:
-                    # 별점 데이터를 정수로 안전하게 변환
-                    try:
-                        star_count = int(float(row['별점']))
-                    except:
-                        star_count = 5
-                    
-                    st.markdown(f"""
-                    <div style="border:1px solid #ddd; padding:15px; border-radius:10px; margin-bottom:15px; background-color:#f9f9f9; min-height:180px;">
-                        <h4 style="margin:0; color:#1E3A8A;">{row['제목']}</h4>
-                        <p style="color:gray; font-size:0.85em; margin-bottom:5px;">{row['저자']} | {row['분류']}</p>
-                        <p style="color:#F59E0B; margin-bottom:10px;">{'⭐' * star_count}</p>
-                        <p style="font-size:0.85em; color:#333;">{row['코멘트']}</p>
-                        <p style="font-size:0.75em; color:silver; text-align:right;">{row['구입일']}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
+            if total_pages > 0:
+                page = st.number_input("페이지", min_value=1, max_value=total_pages, step=1)
+                start_idx = (page - 1) * items_per_page
+                end_idx = start_idx + items_per_page
+                
+                # 표 형식으로 깔끔하게 표시
+                st.table(d_view[['구입일', '제목', '저자', '분류', '별점', '가격']].iloc[start_idx:end_idx].assign(
+                    별점=lambda x: x['별점'].map(lambda s: '⭐' * int(s))
+                ))
+                st.caption(f"총 {len(d_view)}권 중 {start_idx+1}-{min(end_idx, len(d_view))}권 표시 (전체 {total_pages}페이지)")
+        else:
+            st.info("데이터가 없습니다.")
 
-    with tab2: # 신규 도서 등록
-        with st.form("book_reg_v2", clear_on_submit=True):
+    with tab2: # 신규 등록
+        with st.form("book_reg_v4", clear_on_submit=True):
             col1, col2 = st.columns(2)
             b_t = col1.text_input("제목")
             b_a = col1.text_input("저자")
@@ -258,14 +254,12 @@ elif menu == "📚 도서관리":
                     df_books = pd.concat([df_books, pd.DataFrame([new_b])], ignore_index=True)
                     df_books.to_csv('books.csv', index=False)
                     st.success(f"'{b_t}' 등록 완료!"); st.rerun()
-                else:
-                    st.error("제목을 입력해주세요.")
 
-    with tab3: # 관리 및 수정
-        st.write("💡 표의 내용을 수정한 후 저장 버튼을 누르세요. (행 삭제도 가능)")
-        e_df = st.data_editor(df_books, num_rows="dynamic", use_container_width=True, key="book_editor_v2")
-        if st.button("💾 도서 변경사항 최종 저장"):
-            # 저장 전 데이터 타입 정리
+    with tab3: # 관리/수정/삭제
+        st.write("💡 표에서 내용을 수정하거나, 행을 선택한 후 `Delete` 키를 눌러 삭제할 수 있습니다.")
+        # num_rows="dynamic" 옵션이 삭제/추가를 가능하게 함
+        e_df = st.data_editor(df_books, num_rows="dynamic", use_container_width=True, key="book_editor_final")
+        if st.button("💾 변경사항(수정/삭제) 최종 저장"):
             e_df['별점'] = pd.to_numeric(e_df['별점'], errors='coerce').fillna(5).astype(int)
             e_df.to_csv('books.csv', index=False)
-            st.success("데이터가 성공적으로 저장되었습니다!"); st.rerun()
+            st.success("변경사항이 성공적으로 저장되었습니다!"); st.rerun()
