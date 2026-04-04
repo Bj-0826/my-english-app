@@ -5,10 +5,14 @@ import datetime
 import plotly.graph_objects as go
 
 # 1. 앱 설정
-st.set_page_config(page_title="Byungjoo Pro v3.9.5", layout="wide")
+st.set_page_config(page_title="Byungjoo Pro v3.9.6", layout="wide")
 
 # 2. 구글 시트 연결
 conn = st.connection("gsheets", type=GSheetsConnection)
+
+# --- [설정: 시트 탭 이름 확인 필수!] ---
+# 구글 시트 하단 탭 이름이 '시트1'인지 'Sheet1'인지 확인 후 아래를 수정하세요.
+ENGLISH_SHEET_NAME = "시트1"  # <-- 여기서 이름을 실제 탭 이름과 똑같이 맞추세요!
 
 # --- [도우미 함수] ---
 def get_w_label_python(w_key):
@@ -23,14 +27,9 @@ def get_w_label_python(w_key):
 
 def load_data_safe(s_name):
     try:
-        # 워크시트가 존재하는지 먼저 확인하는 로직은 gsheets 연결 특성상 
-        # 직접 읽기를 시도하고 예외처리를 하는 것이 가장 확실합니다.
         df = conn.read(worksheet=s_name, ttl=0)
+        if df is None or df.empty: return pd.DataFrame()
         
-        if df is None or df.empty:
-            return pd.DataFrame()
-        
-        # 컬럼명 전처리
         df.columns = [str(c).strip().lower() for c in df.columns]
         df = df.dropna(how='all')
         
@@ -41,62 +40,40 @@ def load_data_safe(s_name):
             if 'amount' in df.columns:
                 df['amount'] = pd.to_numeric(df['amount'].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
         
-        elif s_name == "Sheet1":
+        elif s_name == ENGLISH_SHEET_NAME:
             if 'memorized' not in df.columns:
                 df['memorized'] = False
             else:
                 df['memorized'] = df['memorized'].astype(str).str.upper() == "TRUE"
-                
         return df
     except Exception as e:
-        # 시트를 못 찾았을 때 사용자에게 친절하게 안내
-        st.error(f"❌ '{s_name}' 탭을 찾을 수 없습니다. 구글 시트의 탭 이름을 확인해주세요.")
-        st.info("💡 팁: 시트 하단의 이름이 'Sheet1'인지, 혹시 '시트1'이나 다른 이름은 아닌지 확인해보세요.")
+        st.error(f"❌ '{s_name}' 탭을 불러오지 못했습니다. (원인: {e})")
         return pd.DataFrame()
 
 # --- [저장 로직] ---
 def handle_save_asset(s_name, date_val, acc, amt_key):
     amt_val = st.session_state[amt_key]
     if amt_val <= 0: return
-    
     df = load_data_safe(s_name)
-    if df.empty:
-        df = pd.DataFrame(columns=['date', 'account', 'amount', 'memo'])
-        
+    if df.empty: df = pd.DataFrame(columns=['date', 'account', 'amount'])
     target_date = str(date_val).strip().upper()
     mask = (df['date'] == target_date) & (df['account'] == str(acc))
-    
-    if mask.any(): 
-        df.loc[mask, 'amount'] = int(amt_val)
-    else: 
-        new_row = pd.DataFrame([{"date": target_date, "account": str(acc), "amount": int(amt_val), "memo": ""}])
-        df = pd.concat([df, new_row], ignore_index=True)
-    
-    try:
-        conn.update(worksheet=s_name, data=df)
-        st.session_state[amt_key] = 0
-        st.toast(f"✅ {acc} 저장 완료!")
-    except Exception as e:
-        st.error(f"저장 실패: {s_name} 탭이 존재하지 않습니다.")
+    if mask.any(): df.loc[mask, 'amount'] = int(amt_val)
+    else: df = pd.concat([df, pd.DataFrame([{"date": target_date, "account": str(acc), "amount": int(amt_val)}])], ignore_index=True)
+    conn.update(worksheet=s_name, data=df)
+    st.session_state[amt_key] = 0
+    st.toast(f"✅ {acc} 저장 완료!")
 
 def handle_save_english():
     en, ko = st.session_state.new_en, st.session_state.new_ko
     if en and ko:
-        s_name = "Sheet1" # 만약 시트 이름이 다르면 이 부분을 수정하세요!
-        df_en = load_data_safe(s_name)
-        
-        if df_en.empty:
-            df_en = pd.DataFrame(columns=['date', 'english', 'korean', 'memorized'])
-            
+        df_en = load_data_safe(ENGLISH_SHEET_NAME)
+        if df_en.empty: df_en = pd.DataFrame(columns=['date', 'english', 'korean', 'memorized'])
         new_row = pd.DataFrame([{"date": str(datetime.date.today()), "english": en, "korean": ko, "memorized": False}])
         df_en = pd.concat([df_en, new_row], ignore_index=True)
-        
-        try:
-            conn.update(worksheet=s_name, data=df_en)
-            st.session_state.new_en = ""; st.session_state.new_ko = ""
-            st.toast("✅ 문장 저장 완료!")
-        except Exception as e:
-            st.error(f"저장 실패: '{s_name}' 탭을 찾을 수 없습니다.")
+        conn.update(worksheet=ENGLISH_SHEET_NAME, data=df_en)
+        st.session_state.new_en = ""; st.session_state.new_ko = ""
+        st.toast("✅ 문장 저장 완료!")
 
 def next_quiz_question():
     if 'q_idx' in st.session_state: del st.session_state.q_idx
@@ -104,7 +81,7 @@ def next_quiz_question():
 
 # --- [사이드바] ---
 with st.sidebar:
-    st.title("Byungjoo Pro v3.9.5")
+    st.title("Byungjoo Pro v3.9.6")
     menu = st.radio("메뉴", ["💰 연금자산", "💵 개인자산", "🔤 영어공부"])
     st.divider()
     ret_date = datetime.date(2028, 12, 31)
@@ -122,7 +99,6 @@ if menu == "💰 연금자산":
                 recent_dates = available_dates[-3:]
                 df_recent = df_p[df_p['date'].isin(recent_dates)]
                 m_total = df_recent.groupby('date')['amount'].sum().reset_index().sort_values('date')
-                
                 cur = m_total.iloc[-1]['amount']
                 prev = m_total.iloc[-2]['amount'] if len(m_total)>1 else cur
                 diff = cur - prev
@@ -132,10 +108,10 @@ if menu == "💰 연금자산":
                 fig = go.Figure()
                 for acc in sorted(df_recent['account'].unique()):
                     acc_df = df_recent[df_recent['account'] == acc]
-                    fig.add_trace(go.Bar(x=acc_df['date'], y=acc_df['amount'], name=acc, hovertemplate="<b>%{fullData.name}</b><br>금액: %{y:,.0f}원<extra></extra>"))
+                    fig.add_trace(go.Bar(x=acc_df['date'], y=acc_df['amount'], name=acc))
                 fig.update_layout(barmode='stack', xaxis_type='category', height=400)
                 st.plotly_chart(fig, use_container_width=True)
-        else: st.info("연금 데이터(Data 탭)를 확인해주세요.")
+        else: st.info("'Data' 탭에 데이터가 없습니다.")
 
 elif menu == "💵 개인자산":
     st.header("💵 개인자산 관리")
@@ -148,7 +124,6 @@ elif menu == "💵 개인자산":
                 recent_w = available_weeks[-3:]
                 df_recent = df_per[df_per['date'].isin(recent_w)]
                 w_total = df_recent.groupby('date')['amount'].sum().reset_index().sort_values('date')
-                
                 cur = w_total.iloc[-1]['amount']
                 prev = w_total.iloc[-2]['amount'] if len(w_total)>1 else cur
                 diff = cur - prev
@@ -158,47 +133,33 @@ elif menu == "💵 개인자산":
                 fig = go.Figure()
                 for acc in sorted(df_recent['account'].unique()):
                     acc_df = df_recent[df_recent['account'] == acc]
-                    fig.add_trace(go.Bar(x=[get_w_label_python(d) for d in acc_df['date']], y=acc_df['amount'], name=acc, hovertemplate="<b>%{fullData.name}</b><br>금액: %{y:,.0f}원<extra></extra>"))
+                    fig.add_trace(go.Bar(x=[get_w_label_python(d) for d in acc_df['date']], y=acc_df['amount'], name=acc))
                 fig.update_layout(barmode='stack', xaxis_type='category', height=400)
                 st.plotly_chart(fig, use_container_width=True)
-        else: st.info("개인자산 데이터(PersonalData 탭)를 확인해주세요.")
+        else: st.info("'PersonalData' 탭에 데이터가 없습니다.")
 
     with t2:
         c1, c2 = st.columns(2)
-        pery = c1.selectbox("연도", [2026, 2027, 2028], key="per_y")
-        perw = c2.number_input("주차", 1, 53, 14, key="per_w")
-        p_acc_per = st.selectbox("계좌", ['KB증권', '삼성증권', '카카오', '한투증권', '현금/기타'])
+        py = c1.selectbox("연도", [2026, 2027, 2028], key="per_y")
+        pw = c2.number_input("주차", 1, 53, 14, key="per_w")
+        p_acc = st.selectbox("계좌", ['KB증권', '삼성증권', '카카오', '한투증권', '현금/기타'])
         st.number_input("금액(원)", step=10000, key="per_amt")
-        st.button("개인자산 저장", on_click=handle_save_asset, args=("PersonalData", f"Y{pery}W{perw}", p_acc_per, "per_amt"))
+        st.button("개인자산 저장", on_click=handle_save_asset, args=("PersonalData", f"Y{py}W{pw}", p_acc, "per_amt"))
 
 else:
     st.header("🔤 Byungjoo의 영어 공부")
-    # 영어 공부 시트 이름 정의 (여기서 수정 가능)
-    TARGET_SHEET = "Sheet1" 
-    df_en = load_data_safe(TARGET_SHEET)
-    
+    df_en = load_data_safe(ENGLISH_SHEET_NAME)
     t_list, t_input, t_quiz = st.tabs(["📖 문장 리스트", "✍️ 문장 입력", "🧠 퀴즈 테스트"])
     
     with t_list:
         if not df_en.empty and 'english' in df_en.columns:
             display_df = df_en[['date', 'english', 'korean', 'memorized']].iloc[::-1]
-            edited_df = st.data_editor(
-                display_df,
-                column_config={"memorized": st.column_config.CheckboxColumn("암기완료 ✅")},
-                disabled=["date", "english", "korean"],
-                use_container_width=True,
-                key="en_editor"
-            )
-            if st.button("암기 상태 시트에 저장"):
+            edited_df = st.data_editor(display_df, use_container_width=True, key="en_editor")
+            if st.button("변경사항 저장"):
                 df_en.update(edited_df)
-                save_df = df_en.copy()
-                save_df['memorized'] = save_df['memorized'].astype(str).str.upper()
-                conn.update(worksheet=TARGET_SHEET, data=save_df)
-                st.toast("✅ 암기 상태 업데이트 완료!")
-                st.rerun()
-        else:
-            st.warning(f"⚠️ '{TARGET_SHEET}' 탭을 찾을 수 없습니다.")
-            st.info(f"💡 해결방법: 구글 시트 하단 탭 이름을 '{TARGET_SHEET}'로 변경하시거나, 코드에서 TARGET_SHEET 이름을 수정해주세요.")
+                conn.update(worksheet=ENGLISH_SHEET_NAME, data=df_en)
+                st.toast("✅ 업데이트 완료!")
+        else: st.warning(f"⚠️ '{ENGLISH_SHEET_NAME}' 탭을 찾을 수 없습니다. 시트 이름을 확인해 주세요.")
         
     with t_input:
         st.text_input("영어 문장", key="new_en")
@@ -207,20 +168,14 @@ else:
 
     with t_quiz:
         if not df_en.empty and 'english' in df_en.columns:
-            # 퀴즈용 필터링 (불리언 변환)
             unmem = df_en[df_en['memorized'] == False]
             if not unmem.empty:
-                if 'q_idx' not in st.session_state or st.session_state.q_idx not in unmem.index:
-                    st.session_state.q_idx = unmem.sample(n=1).index[0]
+                if 'q_idx' not in st.session_state: st.session_state.q_idx = unmem.sample(n=1).index[0]
                 q = unmem.loc[st.session_state.q_idx]
                 st.info(f"뜻: {q['korean']}")
                 ans = st.text_input("영어로 입력", key="q_in")
-                c1, c2 = st.columns(2)
-                with c1:
-                    if st.button("정답 확인"):
-                        if ans.strip().lower() == str(q['english']).strip().lower(): 
-                            st.success("정답!"); st.balloons()
-                        else: 
-                            st.error(f"오답! 정답: {q['english']}")
-                with c2: st.button("다음 문제", on_click=next_quiz_question)
-            else: st.success("🎉 모든 문장을 다 외우셨습니다!")
+                if st.button("정답 확인"):
+                    if ans.strip().lower() == str(q['english']).strip().lower(): st.success("정답!"); st.balloons()
+                    else: st.error(f"오답! 정답: {q['english']}")
+                st.button("다음 문제", on_click=next_quiz_question)
+            else: st.success("🎉 완료!")
