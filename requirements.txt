@@ -1,4 +1,6 @@
 streamlit
 pandas
-st-gsheets-connection
-plotly
+yfinance
+openai
+gspread
+google-auth
