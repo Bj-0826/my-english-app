@@ -5,7 +5,7 @@ import datetime
 import plotly.graph_objects as go
 
 # 1. 앱 설정
-st.set_page_config(page_title="Byungjoo Pro v3.9.3", layout="wide")
+st.set_page_config(page_title="Byungjoo Pro v3.9.5", layout="wide")
 
 # 2. 구글 시트 연결
 conn = st.connection("gsheets", type=GSheetsConnection)
@@ -23,26 +23,36 @@ def get_w_label_python(w_key):
 
 def load_data_safe(s_name):
     try:
+        # 워크시트가 존재하는지 먼저 확인하는 로직은 gsheets 연결 특성상 
+        # 직접 읽기를 시도하고 예외처리를 하는 것이 가장 확실합니다.
         df = conn.read(worksheet=s_name, ttl=0)
-        if df is None or df.empty: 
-            return pd.DataFrame(columns=['date', 'account', 'amount', 'memo'])
         
+        if df is None or df.empty:
+            return pd.DataFrame()
+        
+        # 컬럼명 전처리
+        df.columns = [str(c).strip().lower() for c in df.columns]
         df = df.dropna(how='all')
         
-        # [핵심 수정] 모든 컬럼명을 소문자로 처리하여 일관성 유지
-        df.columns = [str(c).strip().lower() for c in df.columns]
-        
-        if 'amount' in df.columns:
-            df['amount'] = pd.to_numeric(df['amount'].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
-        
         if 'date' in df.columns:
-            # [핵심 수정] 모든 날짜 데이터를 문자열로 변환하여 정렬 에러 방지
             df['date'] = df['date'].astype(str).str.strip().str.upper()
-            
+        
+        if s_name in ["Data", "PersonalData"]:
+            if 'amount' in df.columns:
+                df['amount'] = pd.to_numeric(df['amount'].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
+        
+        elif s_name == "Sheet1":
+            if 'memorized' not in df.columns:
+                df['memorized'] = False
+            else:
+                df['memorized'] = df['memorized'].astype(str).str.upper() == "TRUE"
+                
         return df
     except Exception as e:
-        st.error(f"데이터 로드 실패 ({s_name}): {e}")
-        return pd.DataFrame(columns=['date', 'account', 'amount', 'memo'])
+        # 시트를 못 찾았을 때 사용자에게 친절하게 안내
+        st.error(f"❌ '{s_name}' 탭을 찾을 수 없습니다. 구글 시트의 탭 이름을 확인해주세요.")
+        st.info("💡 팁: 시트 하단의 이름이 'Sheet1'인지, 혹시 '시트1'이나 다른 이름은 아닌지 확인해보세요.")
+        return pd.DataFrame()
 
 # --- [저장 로직] ---
 def handle_save_asset(s_name, date_val, acc, amt_key):
@@ -50,9 +60,10 @@ def handle_save_asset(s_name, date_val, acc, amt_key):
     if amt_val <= 0: return
     
     df = load_data_safe(s_name)
+    if df.empty:
+        df = pd.DataFrame(columns=['date', 'account', 'amount', 'memo'])
+        
     target_date = str(date_val).strip().upper()
-    
-    # 필터링 및 업데이트
     mask = (df['date'] == target_date) & (df['account'] == str(acc))
     
     if mask.any(): 
@@ -61,19 +72,31 @@ def handle_save_asset(s_name, date_val, acc, amt_key):
         new_row = pd.DataFrame([{"date": target_date, "account": str(acc), "amount": int(amt_val), "memo": ""}])
         df = pd.concat([df, new_row], ignore_index=True)
     
-    conn.update(worksheet=s_name, data=df)
-    st.session_state[amt_key] = 0
-    st.toast(f"✅ {acc} 저장 완료!")
+    try:
+        conn.update(worksheet=s_name, data=df)
+        st.session_state[amt_key] = 0
+        st.toast(f"✅ {acc} 저장 완료!")
+    except Exception as e:
+        st.error(f"저장 실패: {s_name} 탭이 존재하지 않습니다.")
 
 def handle_save_english():
     en, ko = st.session_state.new_en, st.session_state.new_ko
     if en and ko:
-        df_en = load_data_safe("Sheet1")
-        new_row = pd.DataFrame([{"date": str(datetime.date.today()), "english": en, "korean": ko, "memorized": "False"}])
+        s_name = "Sheet1" # 만약 시트 이름이 다르면 이 부분을 수정하세요!
+        df_en = load_data_safe(s_name)
+        
+        if df_en.empty:
+            df_en = pd.DataFrame(columns=['date', 'english', 'korean', 'memorized'])
+            
+        new_row = pd.DataFrame([{"date": str(datetime.date.today()), "english": en, "korean": ko, "memorized": False}])
         df_en = pd.concat([df_en, new_row], ignore_index=True)
-        conn.update(worksheet="Sheet1", data=df_en)
-        st.session_state.new_en = ""; st.session_state.new_ko = ""
-        st.toast("✅ 문장 저장 완료!")
+        
+        try:
+            conn.update(worksheet=s_name, data=df_en)
+            st.session_state.new_en = ""; st.session_state.new_ko = ""
+            st.toast("✅ 문장 저장 완료!")
+        except Exception as e:
+            st.error(f"저장 실패: '{s_name}' 탭을 찾을 수 없습니다.")
 
 def next_quiz_question():
     if 'q_idx' in st.session_state: del st.session_state.q_idx
@@ -81,7 +104,7 @@ def next_quiz_question():
 
 # --- [사이드바] ---
 with st.sidebar:
-    st.title("Byungjoo Pro v3.9.3")
+    st.title("Byungjoo Pro v3.9.5")
     menu = st.radio("메뉴", ["💰 연금자산", "💵 개인자산", "🔤 영어공부"])
     st.divider()
     ret_date = datetime.date(2028, 12, 31)
@@ -93,17 +116,13 @@ if menu == "💰 연금자산":
     df_p = load_data_safe("Data")
     t1, t2 = st.tabs(["📊 대시보드", "📝 입력"])
     with t1:
-        if not df_p.empty and len(df_p) > 0:
-            # [수정] 정렬 전 문자열 리스트로 변환하여 타입 충돌 방지
+        if not df_p.empty and 'date' in df_p.columns:
             available_dates = sorted([str(d) for d in df_p['date'].unique()])
-            recent_dates = available_dates[-3:]
-            df_recent = df_p[df_p['date'].isin(recent_dates)]
-            
-            m_total = df_recent.groupby('date')['amount'].sum().reset_index()
-            # 날짜순 재정렬
-            m_total = m_total.sort_values('date')
-            
-            if not m_total.empty:
+            if available_dates:
+                recent_dates = available_dates[-3:]
+                df_recent = df_p[df_p['date'].isin(recent_dates)]
+                m_total = df_recent.groupby('date')['amount'].sum().reset_index().sort_values('date')
+                
                 cur = m_total.iloc[-1]['amount']
                 prev = m_total.iloc[-2]['amount'] if len(m_total)>1 else cur
                 diff = cur - prev
@@ -116,32 +135,20 @@ if menu == "💰 연금자산":
                     fig.add_trace(go.Bar(x=acc_df['date'], y=acc_df['amount'], name=acc, hovertemplate="<b>%{fullData.name}</b><br>금액: %{y:,.0f}원<extra></extra>"))
                 fig.update_layout(barmode='stack', xaxis_type='category', height=400)
                 st.plotly_chart(fig, use_container_width=True)
-        else: st.info("데이터가 없습니다.")
-
-    with t2:
-        c1, c2 = st.columns(2)
-        py = c1.selectbox("연도", [2026, 2027, 2028], key="p_y")
-        pm = c2.selectbox("월", [f"{i:02d}" for i in range(1, 13)], index=datetime.date.today().month-1, key="p_m")
-        p_acc = st.selectbox("항목", ['퇴직연금', 'IRP', 'ISA', '개인연금'])
-        st.number_input("금액(원)", step=100000, key="p_amt")
-        st.button("연금 저장", on_click=handle_save_asset, args=("Data", f"{py}-{pm}", p_acc, "p_amt"))
+        else: st.info("연금 데이터(Data 탭)를 확인해주세요.")
 
 elif menu == "💵 개인자산":
     st.header("💵 개인자산 관리")
     df_per = load_data_safe("PersonalData")
     t1, t2 = st.tabs(["📊 대시보드", "📝 입력"])
     with t1:
-        if not df_per.empty and len(df_per) > 0:
-            # [수정] 정렬 전 문자열 리스트로 변환하여 타입 충돌 방지
+        if not df_per.empty and 'date' in df_per.columns:
             available_weeks = sorted([str(d) for d in df_per['date'].unique()])
-            recent_w = available_weeks[-3:]
-            df_recent = df_per[df_per['date'].isin(recent_w)]
-            
-            w_total = df_recent.groupby('date')['amount'].sum().reset_index()
-            # 날짜순 재정렬
-            w_total = w_total.sort_values('date')
-            
-            if not w_total.empty:
+            if available_weeks:
+                recent_w = available_weeks[-3:]
+                df_recent = df_per[df_per['date'].isin(recent_w)]
+                w_total = df_recent.groupby('date')['amount'].sum().reset_index().sort_values('date')
+                
                 cur = w_total.iloc[-1]['amount']
                 prev = w_total.iloc[-2]['amount'] if len(w_total)>1 else cur
                 diff = cur - prev
@@ -154,7 +161,7 @@ elif menu == "💵 개인자산":
                     fig.add_trace(go.Bar(x=[get_w_label_python(d) for d in acc_df['date']], y=acc_df['amount'], name=acc, hovertemplate="<b>%{fullData.name}</b><br>금액: %{y:,.0f}원<extra></extra>"))
                 fig.update_layout(barmode='stack', xaxis_type='category', height=400)
                 st.plotly_chart(fig, use_container_width=True)
-        else: st.info("데이터가 없습니다.")
+        else: st.info("개인자산 데이터(PersonalData 탭)를 확인해주세요.")
 
     with t2:
         c1, c2 = st.columns(2)
@@ -166,12 +173,14 @@ elif menu == "💵 개인자산":
 
 else:
     st.header("🔤 Byungjoo의 영어 공부")
-    df_en = load_data_safe("Sheet1")
+    # 영어 공부 시트 이름 정의 (여기서 수정 가능)
+    TARGET_SHEET = "Sheet1" 
+    df_en = load_data_safe(TARGET_SHEET)
+    
     t_list, t_input, t_quiz = st.tabs(["📖 문장 리스트", "✍️ 문장 입력", "🧠 퀴즈 테스트"])
     
     with t_list:
         if not df_en.empty and 'english' in df_en.columns:
-            # 컬럼 순서 맞추기
             display_df = df_en[['date', 'english', 'korean', 'memorized']].iloc[::-1]
             edited_df = st.data_editor(
                 display_df,
@@ -182,10 +191,14 @@ else:
             )
             if st.button("암기 상태 시트에 저장"):
                 df_en.update(edited_df)
-                conn.update(worksheet="Sheet1", data=df_en)
-                st.toast("✅ 암기 상태가 업데이트되었습니다!")
+                save_df = df_en.copy()
+                save_df['memorized'] = save_df['memorized'].astype(str).str.upper()
+                conn.update(worksheet=TARGET_SHEET, data=save_df)
+                st.toast("✅ 암기 상태 업데이트 완료!")
                 st.rerun()
-        else: st.info("문장이 없습니다.")
+        else:
+            st.warning(f"⚠️ '{TARGET_SHEET}' 탭을 찾을 수 없습니다.")
+            st.info(f"💡 해결방법: 구글 시트 하단 탭 이름을 '{TARGET_SHEET}'로 변경하시거나, 코드에서 TARGET_SHEET 이름을 수정해주세요.")
         
     with t_input:
         st.text_input("영어 문장", key="new_en")
@@ -193,9 +206,9 @@ else:
         st.button("문장 저장", on_click=handle_save_english)
 
     with t_quiz:
-        if not df_en.empty and 'memorized' in df_en.columns:
-            df_en['memorized_bool'] = df_en['memorized'].astype(str).str.upper() == "TRUE"
-            unmem = df_en[df_en['memorized_bool'] == False]
+        if not df_en.empty and 'english' in df_en.columns:
+            # 퀴즈용 필터링 (불리언 변환)
+            unmem = df_en[df_en['memorized'] == False]
             if not unmem.empty:
                 if 'q_idx' not in st.session_state or st.session_state.q_idx not in unmem.index:
                     st.session_state.q_idx = unmem.sample(n=1).index[0]
