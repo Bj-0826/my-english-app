@@ -8,7 +8,7 @@ import plotly.express as px
 import requests
 
 # 1. 앱 설정
-st.set_page_config(page_title="은퇴 준비하기 v4.8", layout="wide")
+st.set_page_config(page_title="은퇴 준비하기 v4.8.1", layout="wide")
 
 # 2. 구글 시트 연결 (원본 유지)
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1LrVto7YUbodWwGsRBQ0PR7evNnEmDtf_gNEj8gM7ngA/edit#gid=0"
@@ -100,7 +100,6 @@ if menu == "💰 연금자산":
     t1, t2 = st.tabs(["📊 대시보드", "📝 입력"])
     with t1:
         if not df_p.empty and 'date' in df_p.columns:
-            # [버그 수정 완료] 실제 시간 순서로 정렬 (APR-26이 MAR-26 뒤에 오도록)
             dates_sorted = sorted(df_p['date'].unique(), key=lambda x: pd.to_datetime(x, format='%Y-%m', errors='coerce'))
             if dates_sorted:
                 recent = dates_sorted[-3:]
@@ -139,18 +138,26 @@ elif menu == "💵 개인자산":
                 except: return k
             weeks = sorted([str(d) for d in df_per['date'].unique()])
             if weeks:
-                recent = weeks[-3:]; df_r = df_per[df_per['date'].isin(recent)]
-                w_total = df_r.groupby('date')['amount'].sum().reset_index().sort_values('date')
-                cur = w_total.iloc[-1]; prev = w_total.iloc[-2] if len(w_total)>1 else cur
+                recent = weeks[-3:]
+                df_r = df_per[df_per['date'].isin(recent)]
+                # [수정 포인트] 에러 방지를 위해 reindex와 fillna(0) 적용
+                w_total = df_r.groupby('date')['amount'].sum().reindex(recent).fillna(0)
+                cur = w_total.iloc[-1]
+                prev = w_total.iloc[-2] if len(w_total)>1 else cur
                 diff = cur - prev
+                
                 c1, c2 = st.columns(2)
                 c1.metric(f"{get_w(recent[-1])} 합계", f"{int(cur):,}원")
-                c2.metric("전주 대비", f"{(diff/prev*100) if prev!=0 else 0:+.1f}%", f"{int(diff):+,}원")
+                # prev가 0일 경우 에러 방지
+                p_change = (diff/prev*100) if prev != 0 else 0
+                c2.metric("전주 대비", f"{p_change:+.1f}%", f"{int(diff):+,}원")
+                
                 fig = go.Figure()
                 for acc in sorted(df_r['account'].unique()):
-                    acc_df = df_r[df_r['account'] == acc]
+                    # 개별 항목 그래프 그릴 때도 데이터 누락 방지
+                    acc_df = df_r[df_r['account'] == acc].set_index('date').reindex(recent).fillna(0).reset_index()
                     fig.add_trace(go.Bar(x=[get_w(d) for d in acc_df['date']], y=acc_df['amount'], name=acc))
-                fig.update_layout(barmode='stack', height=400)
+                fig.update_layout(barmode='stack', xaxis={'categoryorder':'array', 'categoryarray':recent}, height=400)
                 st.plotly_chart(fig, use_container_width=True)
     with t2:
         c1, c2 = st.columns(2)
@@ -220,7 +227,6 @@ elif menu == "📚 도서관리":
                     df_books.loc[df_books['제목'] == sel_b, ['제목', '별점']] = [new_t, new_r]
                     df_books.to_csv('books.csv', index=False); st.rerun()
 
-# --- [✈️ 여행관리 메뉴 - JS 버전 로직 완벽 이식] ---
 elif menu == "✈️ 여행관리":
     st.header("✈️ Byungjoo 여행기록")
     df_dest, df_exp = load_travel_data()
