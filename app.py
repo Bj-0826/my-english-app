@@ -3,15 +3,17 @@ from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 import datetime
 import plotly.graph_objects as go
+import os
+import plotly.express as px
 
 # 1. 앱 설정
-st.set_page_config(page_title="Byungjoo Pro v4.1", layout="wide")
+st.set_page_config(page_title="Byungjoo Pro v4.2", layout="wide")
 
-# 2. 구글 시트 연결
+# 2. 구글 시트 연결 (기존 URL 및 연결 유지)
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1LrVto7YUbodWwGsRBQ0PR7evNnEmDtf_gNEj8gM7ngA/edit#gid=0"
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- [데이터 로드 함수] ---
+# --- [기존 데이터 로드 함수 유지] ---
 def load_data_safe(s_name):
     try:
         df = conn.read(spreadsheet=SHEET_URL, worksheet=s_name, ttl=0)
@@ -30,7 +32,19 @@ def load_data_safe(s_name):
         st.error(f"❌ '{s_name}' 로드 실패: {e}")
         return pd.DataFrame()
 
-# --- [저장 로직] ---
+# --- [도서 관리 전용 로드/저장 함수 - 신규] ---
+def load_book_data():
+    if os.path.exists('books.csv'):
+        try:
+            df = pd.read_csv('books.csv')
+            df['구입일'] = pd.to_datetime(df['구입일']).dt.date
+            df['연도'] = pd.to_datetime(df['구입일']).dt.year
+            return df
+        except:
+            return pd.DataFrame(columns=['제목', '저자', '가격', '구입일', '구입처', '분류', '별점', '코멘트', '연도'])
+    return pd.DataFrame(columns=['제목', '저자', '가격', '구입일', '구입처', '분류', '별점', '코멘트', '연도'])
+
+# --- [기존 저장 로직 유지] ---
 def handle_save_asset(s_name, date_val, acc, amt_key):
     amt_val = st.session_state[amt_key]
     if amt_val <= 0: return
@@ -62,8 +76,8 @@ def handle_save_english():
 
 # --- [사이드바] ---
 with st.sidebar:
-    st.title("Byungjoo Pro v4.1")
-    menu = st.radio("메뉴", ["💰 연금자산", "💵 개인자산", "🔤 영어공부"])
+    st.title("Byungjoo Pro v4.2")
+    menu = st.radio("메뉴", ["💰 연금자산", "💵 개인자산", "🔤 영어공부", "📚 도서관리"])
     st.divider()
     ret_date = datetime.date(2028, 12, 31)
     st.metric("은퇴 D-Day", f"D-{(ret_date - datetime.date.today()).days}")
@@ -94,7 +108,6 @@ if menu == "💰 연금자산":
                 st.plotly_chart(fig, use_container_width=True)
         else: st.info("데이터가 없습니다.")
     with t2:
-        # [복원된 입력 메뉴]
         st.subheader("📝 자산 데이터 입력")
         c1, c2 = st.columns(2)
         py = c1.selectbox("연도", [2026, 2027, 2028], key="p_y")
@@ -132,7 +145,6 @@ elif menu == "💵 개인자산":
                 st.plotly_chart(fig, use_container_width=True)
         else: st.info("데이터가 없습니다.")
     with t2:
-        # [복원된 개인자산 입력 메뉴]
         st.subheader("📝 개인자산 데이터 입력")
         c1, c2 = st.columns(2)
         pery = c1.selectbox("연도", [2026, 2027, 2028], key="per_y")
@@ -141,7 +153,7 @@ elif menu == "💵 개인자산":
         st.number_input("금액(원)", step=10000, key="per_amt")
         st.button("개인자산 저장", on_click=handle_save_asset, args=("PersonalData", f"Y{pery}W{perw}", p_acc_per, "per_amt"))
 
-else:
+elif menu == "🔤 영어공부":
     st.header("🔤 Byungjoo의 영어 공부")
     df_en = load_data_safe("Sheet1")
     t1, t2, t3 = st.tabs(["📖 문장 리스트", "✍️ 문장 입력", "🧠 퀴즈"])
@@ -173,3 +185,65 @@ else:
                     if 'q_idx' in st.session_state: del st.session_state.q_idx
                 st.button("다음 문제", on_click=next_q)
             else: st.success("🎉 완료!")
+
+# --- [신규 도서 관리 메뉴 - Byungjoo님의 기획 반영] ---
+elif menu == "📚 도서관리":
+    st.header("📚 도서 관리 시스템")
+    df_books = load_book_data()
+
+    # (1) 통계 대시보드
+    if not df_books.empty:
+        c1, c2, c3 = st.columns([1, 1, 2])
+        c1.metric("누적 독서량", f"{len(df_books)} 권")
+        c2.metric("총 구입비", f"₩{int(df_books['가격'].sum()):,}")
+        year_stats = df_books.groupby('연도').size().reset_index(name='권수')
+        fig = px.bar(year_stats, x='연도', y='권수', title="연도별 독서량", text_auto=True)
+        fig.update_layout(height=300)
+        st.plotly_chart(fig, use_container_width=True)
+
+    tab1, tab2, tab3 = st.tabs(["📖 서재 보기", "➕ 신규 등록", "⚙️ 관리/수정"])
+
+    with tab1: # 필터 및 갤러리 뷰
+        if not df_books.empty:
+            f1, f2 = st.columns(2)
+            y_sel = f1.multiselect("연도", options=sorted(df_books['연도'].unique(), reverse=True))
+            c_sel = f2.multiselect("분류", options=["경제/경영", "자기계발", "에세이", "소설", "역사", "기타"])
+            
+            d_view = df_books.copy()
+            if y_sel: d_view = d_view[d_view['연도'].isin(y_sel)]
+            if c_sel: d_view = d_view[d_view['분류'].isin(c_sel)]
+            
+            cols = st.columns(3)
+            for idx, (_, row) in enumerate(d_view.iterrows()):
+                with cols[idx % 3]:
+                    st.markdown(f"""
+                    <div style="border:1px solid #ddd; padding:15px; border-radius:10px; margin-bottom:15px; background-color:#f9f9f9;">
+                        <h4 style="margin:0;">{row['제목']}</h4>
+                        <p style="color:gray; font-size:0.85em;">{row['저자']} | {row['분류']}</p>
+                        <p>{'⭐' * int(row['별점'])}</p>
+                        <p style="font-size:0.9em;">{row['코멘트']}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+    with tab2: # 신규 도서 등록
+        with st.form("book_reg", clear_on_submit=True):
+            col1, col2 = st.columns(2)
+            b_t = col1.text_input("제목")
+            b_a = col1.text_input("저자")
+            b_p = col1.number_input("가격", step=1000)
+            b_d = col2.date_input("구입일", datetime.date.today())
+            b_c = col2.selectbox("분류", ["경제/경영", "자기계발", "에세이", "소설", "역사", "기타"])
+            b_r = col2.slider("별점", 1, 5, 5)
+            b_cmt = st.text_area("코멘트")
+            if st.form_submit_button("서재에 추가"):
+                new_b = {'제목': b_t, '저자': b_a, '가격': b_p, '구입일': b_d, '분류': b_c, '별점': b_r, '코멘트': b_cmt, '연도': b_d.year}
+                df_books = pd.concat([df_books, pd.DataFrame([new_b])], ignore_index=True)
+                df_books.to_csv('books.csv', index=False)
+                st.success("등록 완료!"); st.rerun()
+
+    with tab3: # 수정 및 삭제
+        st.write("직접 수정 후 저장 버튼을 누르세요.")
+        e_df = st.data_editor(df_books, num_rows="dynamic", use_container_width=True)
+        if st.button("도서 변경사항 저장"):
+            e_df.to_csv('books.csv', index=False)
+            st.success("저장 완료!"); st.rerun()
