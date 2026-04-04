@@ -1,173 +1,108 @@
 import streamlit as st
-from streamlit_gsheets import GSheetsConnection
 import pandas as pd
-import datetime
-import plotly.graph_objects as go
+import yfinance as yf
+from datetime import datetime
+import openai
+from google.oauth2.service_account import Credentials
+import gspread
 
-# 1. 앱 설정
-st.set_page_config(page_title="Byungjoo Pro v3.9", layout="wide")
+# 1. 페이지 설정 및 보안
+st.set_page_config(page_title="Byungjoo Master Hub v51", layout="wide")
 
-# 2. 구글 시트 연결
-conn = st.connection("gsheets", type=GSheetsConnection)
+try:
+    creds_info = st.secrets["connections"]["gsheets"]
+    OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
+    spreadsheet_url = "https://docs.google.com/spreadsheets/d/1puWzFplStYrixwCHTyvC0NDWw1N-YacA1XkZOCaM6Jk/edit"
+    
+    scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+    creds = Credentials.from_service_account_info(creds_info, scopes=scope)
+    gc = gspread.authorize(creds)
+    sh = gc.open_by_url(spreadsheet_url)
+except Exception as e:
+    st.error("설정 로드 실패! 시트 권한 및 Secrets(Key값)를 확인해주세요.")
+    st.stop()
 
-# --- [도우미 함수] ---
-def get_w_label_python(w_key):
+# 2. 데이터 처리 엔진
+def load_setup_data():
+    """Setup 탭에서 보유 종목 리스트 로드"""
     try:
-        w_key = str(w_key).upper().strip()
-        year = int(w_key[1:5]); week_num = int(w_key.split('W')[1])
-        d = datetime.date(year, 1, 1) + datetime.timedelta(weeks=week_num-1)
-        return f"{d.month}월 {((d.day-1)//7)+1}주 (W{week_num})"
-    except: return w_key
+        ws = sh.worksheet("Setup")
+        return pd.DataFrame(ws.get_all_records())
+    except:
+        st.warning("'Setup' 탭에 데이터가 없거나 형식이 맞지 않습니다.")
+        return pd.DataFrame()
 
-def load_data_safe(s_name):
+@st.cache_data(ttl=3600)
+def get_live_price(ticker):
+    """Yahoo Finance 실시간 가격 수집"""
+    if not ticker or ticker == "": return 1.0 # 펀드는 나중에 단가 보정 기능 추가 예정
     try:
-        df = conn.read(worksheet=s_name, ttl=0)
-        if df is None or df.empty: return pd.DataFrame()
-        df = df.dropna(how='all')
-        if s_name in ["Data", "PersonalData"]:
-            df = df.dropna(subset=['date', 'account'])
-            df['amount'] = pd.to_numeric(df['amount'].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
-            df['date'] = df['date'].astype(str).str.upper().str.strip()
-        elif s_name == "Sheet1":
-            df = df.dropna(subset=['english'])
-            # memorized 값을 불리언(True/False)으로 통일
-            df['memorized'] = df['memorized'].astype(str).str.capitalize() == "True"
-        return df
-    except: return pd.DataFrame()
+        # 한국 종목(.KS, .KQ) 및 미국 종목 호환
+        return yf.Ticker(str(ticker)).history(period="1d")['Close'].iloc[-1]
+    except: return 0
 
-# --- [저장 로직] ---
-def handle_save_asset(s_name, date_val, acc, amt_key):
-    amt_val = st.session_state[amt_key]
-    if amt_val <= 0: return
-    df = load_data_safe(s_name)
-    mask = (df['date'] == str(date_val).upper()) & (df['account'] == str(acc))
-    if mask.any(): df.loc[mask, 'amount'] = int(amt_val)
-    else: df = pd.concat([df, pd.DataFrame([{"date": date_val, "account": acc, "amount": int(amt_val)}])], ignore_index=True)
-    conn.update(worksheet=s_name, data=df)
-    st.session_state[amt_key] = 0
-    st.toast(f"✅ {acc} 저장 완료!")
+def get_gpt_english():
+    """AI 영어 3문장 생성"""
+    client = openai.OpenAI(api_key=OPENAI_API_KEY)
+    res = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[{"role": "system", "content": "You are a business English tutor for Byungjoo, a Marketing PM. Provide 3 tech/marketing sentences with Korean translations."}]
+    )
+    return res.choices[0].message.content
 
-def handle_save_english():
-    en, ko = st.session_state.new_en, st.session_state.new_ko
-    if en and ko:
-        df_en = load_data_safe("Sheet1")
-        new_row = pd.DataFrame([{"date": str(datetime.date.today()), "english": en, "korean": ko, "memorized": False}])
-        df_en = pd.concat([df_en, new_row], ignore_index=True)
-        conn.update(worksheet="Sheet1", data=df_en)
-        st.session_state.new_en = ""; st.session_state.new_ko = ""
-        st.toast("✅ 문장 저장 완료!")
+# 3. 사이드바 및 메뉴
+st.sidebar.title("💎 Byungjoo's Hub")
+menu = st.sidebar.radio("메뉴 이동", ["📊 자산 통합 관리", "✍️ 영어 공부", "📅 여행/도서 기록"])
 
-def next_quiz_question():
-    if 'q_idx' in st.session_state: del st.session_state.q_idx
-    if 'q_in' in st.session_state: st.session_state.q_in = ""
+# 실시간 DB 로드
+df_db = load_setup_data()
 
-# --- [사이드바] ---
-with st.sidebar:
-    st.title("Byungjoo Pro v3.9")
-    menu = st.radio("메뉴", ["💰 연금자산", "💵 개인자산", "🔤 영어공부"])
-    st.divider()
-    ret_date = datetime.date(2028, 12, 31)
-    st.metric("은퇴 D-Day", f"D-{(ret_date - datetime.date.today()).days}")
+if menu == "📊 자산 통합 관리":
+    st.header("📉 실시간 자산 대시보드")
+    
+    if not df_db.empty:
+        with st.spinner("실시간 가격 정보를 가져오는 중..."):
+            df_db['현재가'] = df_db['Ticker'].apply(get_live_price)
+            df_db['평가금액'] = df_db['현재가'] * df_db['Qty']
+            
+            # 요약 데이터
+            summary = df_db.groupby('Category')['평가금액'].sum().reset_index()
+            total_sum = summary['평가금액'].sum()
+            
+            # 대시보드 레이아웃
+            m1, m2 = st.columns([1, 2])
+            m1.metric("총 자산 합계", f"{total_sum:,.0f}원")
+            m2.bar_chart(summary.set_index('Category'))
+            
+            st.subheader("📋 세부 보유 종목 현황")
+            st.dataframe(df_db[['Category', 'Name', 'Ticker', 'Qty', '평가금액']].style.format({"평가금액": "{:,.0f}", "현재가": "{:,.2f}"}), use_container_width=True)
+            
+            if st.button("💾 현재 상태를 'Data' 시트에 백업 (월말 기록용)"):
+                ws_data = sh.worksheet("Data")
+                now = datetime.now().strftime("%Y-%m-%d %H:%M")
+                for _, row in summary.iterrows():
+                    ws_data.append_row([now, row['Category'], row['평가금액']])
+                st.success(f"{now} 기준 데이터가 시트에 기록되었습니다.")
+    else:
+        st.info("시트의 'Setup' 탭에 종목 정보를 입력해주세요.")
 
-# --- [메인 로직] ---
-if menu == "💰 연금자산":
-    st.header("💰 연금자산 관리")
-    df_p = load_data_safe("Data")
-    t1, t2 = st.tabs(["📊 대시보드", "📝 입력"])
-    with t1:
-        if not df_p.empty:
-            recent_dates = sorted(df_p['date'].unique())[-3:]
-            df_recent = df_p[df_p['date'].isin(recent_dates)]
-            m_total = df_recent.groupby('date')['amount'].sum().reset_index().sort_values('date')
-            cur, prev = m_total.iloc[-1]['amount'], m_total.iloc[-2]['amount'] if len(m_total)>1 else m_total.iloc[-1]['amount']
-            diff = cur - prev
-            c1, c2 = st.columns(2)
-            c1.metric(f"{recent_dates[-1]} 합계", f"{int(cur):,}원")
-            c2.metric("전월 대비", f"{(diff/prev*100) if prev!=0 else 0:+.1f}%", f"{int(diff):+,}원")
-            fig = go.Figure()
-            for acc in sorted(df_recent['account'].unique()):
-                acc_df = df_recent[df_recent['account'] == acc]
-                fig.add_trace(go.Bar(x=acc_df['date'], y=acc_df['amount'], name=acc, hovertemplate="<b>%{fullData.name}</b><br>금액: %{y:,.0f}원<extra></extra>"))
-            fig.update_layout(barmode='stack', xaxis_type='category', height=400)
-            st.plotly_chart(fig, use_container_width=True)
-
-    with t2:
-        c1, c2 = st.columns(2)
-        py = c1.selectbox("연도", [2026, 2027, 2028], key="p_y")
-        pm = c2.selectbox("월", [f"{i:02d}" for i in range(1, 13)], index=datetime.date.today().month-1, key="p_m")
-        p_acc = st.selectbox("항목", ['퇴직연금', 'IRP', 'ISA', '개인연금'])
-        st.number_input("금액(원)", step=100000, key="p_amt")
-        st.button("연금 저장", on_click=handle_save_asset, args=("Data", f"{py}-{pm}", p_acc, "p_amt"))
-
-elif menu == "💵 개인자산":
-    st.header("💵 개인자산 관리")
-    df_per = load_data_safe("PersonalData")
-    t1, t2 = st.tabs(["📊 대시보드", "📝 입력"])
-    with t1:
-        if not df_per.empty:
-            recent_w = sorted(df_per['date'].unique())[-3:]
-            df_recent = df_per[df_per['date'].isin(recent_w)]
-            w_total = df_recent.groupby('date')['amount'].sum().reset_index().sort_values('date')
-            cur, prev = w_total.iloc[-1]['amount'], w_total.iloc[-2]['amount'] if len(w_total)>1 else w_total.iloc[-1]['amount']
-            diff = cur - prev
-            c1, c2 = st.columns(2)
-            c1.metric(f"{get_w_label_python(recent_w[-1])} 합계", f"{int(cur):,}원")
-            c2.metric("전주 대비", f"{(diff/prev*100) if prev!=0 else 0:+.1f}%", f"{int(diff):+,}원")
-            fig = go.Figure()
-            for acc in sorted(df_recent['account'].unique()):
-                acc_df = df_recent[df_recent['account'] == acc]
-                fig.add_trace(go.Bar(x=[get_w_label_python(d) for d in acc_df['date']], y=acc_df['amount'], name=acc, hovertemplate="<b>%{fullData.name}</b><br>금액: %{y:,.0f}원<extra></extra>"))
-            fig.update_layout(barmode='stack', xaxis_type='category', height=400)
-            st.plotly_chart(fig, use_container_width=True)
-
-    with t2:
-        c1, c2 = st.columns(2)
-        pery = c1.selectbox("연도", [2026, 2027, 2028], key="per_y")
-        perw = c2.number_input("주차", 1, 53, 13, key="per_w")
-        p_acc_per = st.selectbox("계좌", ['KB증권', '삼성증권', '카카오', '한투증권', '현금/기타'])
-        st.number_input("금액(원)", step=10000, key="per_amt")
-        st.button("개인자산 저장", on_click=handle_save_asset, args=("PersonalData", f"Y{pery}W{perw}", p_acc_per, "per_amt"))
+elif menu == "✍️ 영어 공부":
+    st.header("🎧 Business English Tutor")
+    tab_ai, tab_manual = st.tabs(["🤖 AI 자동 생성", "📝 직접 기록"])
+    
+    with tab_ai:
+        if st.button("오늘의 3문장 생성하기"):
+            st.session_state['eng_text'] = get_gpt_english()
+        if 'eng_text' in st.session_state:
+            st.info(st.session_state['eng_text'])
+            
+    with tab_manual:
+        with st.form("manual_entry"):
+            e_text = st.text_input("English")
+            k_text = st.text_input("Korean")
+            if st.form_submit_button("시트에 저장"):
+                sh.worksheet("English").append_row([datetime.now().strftime("%Y-%m-%d"), e_text, k_text])
+                st.success("입력한 문장이 시트에 저장되었습니다.")
 
 else:
-    st.header("🔤 Byungjoo의 영어 공부")
-    df_en = load_data_safe("Sheet1")
-    t_list, t_input, t_quiz = st.tabs(["📖 문장 리스트", "✍️ 문장 입력", "🧠 퀴즈 테스트"])
-    
-    with t_list:
-        if not df_en.empty:
-            # 편집 가능한 데이터프레임으로 제공 (암기 여부를 바로 체크 가능)
-            edited_df = st.data_editor(
-                df_en[['date', 'english', 'korean', 'memorized']].iloc[::-1],
-                column_config={"memorized": st.column_config.CheckboxColumn("암기완료 ✅")},
-                disabled=["date", "english", "korean"],
-                use_container_width=True,
-                key="en_editor"
-            )
-            # 체크박스 변경 시 시트 업데이트
-            if st.button("암기 상태 시트에 저장"):
-                df_en.update(edited_df)
-                conn.update(worksheet="Sheet1", data=df_en)
-                st.toast("✅ 암기 상태가 업데이트되었습니다!")
-                st.rerun()
-        else: st.info("문장이 없습니다.")
-        
-    with t_input:
-        st.text_input("영어 문장", key="new_en")
-        st.text_input("한글 뜻", key="new_ko")
-        st.button("문장 저장", on_click=handle_save_english)
-
-    with t_quiz:
-        unmem = df_en[df_en['memorized'] == False]
-        if not unmem.empty:
-            if 'q_idx' not in st.session_state or st.session_state.q_idx not in unmem.index:
-                st.session_state.q_idx = unmem.sample(n=1).index[0]
-            q = unmem.loc[st.session_state.q_idx]
-            st.info(f"뜻: {q['korean']}")
-            ans = st.text_input("영어로 입력", key="q_in")
-            c1, c2 = st.columns(2)
-            with c1:
-                if st.button("정답 확인"):
-                    if ans.strip().lower() == str(q['english']).strip().lower(): st.success("정답!"); st.balloons()
-                    else: st.error(f"오답! 정답: {q['english']}")
-            with c2: st.button("다음 문제", on_click=next_quiz_question)
-        else: st.success("🎉 모든 문장을 다 외우셨습니다!")
+    st.info("여행 및 도서 기록 기능은 다음 업데이트에서 연결될 예정입니다.")
