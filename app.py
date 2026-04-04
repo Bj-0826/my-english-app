@@ -5,7 +5,7 @@ import datetime
 import plotly.graph_objects as go
 
 # 1. 앱 설정
-st.set_page_config(page_title="Byungjoo Pro v3.9", layout="wide")
+st.set_page_config(page_title="Byungjoo Pro v3.9.1", layout="wide")
 
 # 2. 구글 시트 연결
 conn = st.connection("gsheets", type=GSheetsConnection)
@@ -14,7 +14,8 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 def get_w_label_python(w_key):
     try:
         w_key = str(w_key).upper().strip()
-        year = int(w_key[1:5]); week_num = int(w_key.split('W')[1])
+        year = int(w_key[1:5])
+        week_num = int(w_key.split('W')[1])
         d = datetime.date(year, 1, 1) + datetime.timedelta(weeks=week_num-1)
         return f"{d.month}월 {((d.day-1)//7)+1}주 (W{week_num})"
     except: return w_key
@@ -23,26 +24,46 @@ def load_data_safe(s_name):
     try:
         df = conn.read(worksheet=s_name, ttl=0)
         if df is None or df.empty: return pd.DataFrame()
+        
+        # [핵심 수정] 모든 컬럼명을 소문자로 통일하고 앞뒤 공백 제거 (KeyError 방지)
+        df.columns = [str(c).strip().lower() for c in df.columns]
+        
         df = df.dropna(how='all')
         if s_name in ["Data", "PersonalData"]:
-            df = df.dropna(subset=['date', 'account'])
-            df['amount'] = pd.to_numeric(df['amount'].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
-            df['date'] = df['date'].astype(str).str.upper().str.strip()
+            # 'date'와 'account' 컬럼이 있는지 확인 후 처리
+            cols = df.columns.tolist()
+            if 'date' in cols and 'account' in cols:
+                df = df.dropna(subset=['date', 'account'])
+                if 'amount' in cols:
+                    df['amount'] = pd.to_numeric(df['amount'].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
+                df['date'] = df['date'].astype(str).str.upper().str.strip()
         elif s_name == "Sheet1":
-            df = df.dropna(subset=['english'])
-            # memorized 값을 불리언(True/False)으로 통일
-            df['memorized'] = df['memorized'].astype(str).str.capitalize() == "True"
+            if 'english' in df.columns:
+                df = df.dropna(subset=['english'])
+                if 'memorized' in df.columns:
+                    df['memorized'] = df['memorized'].astype(str).str.capitalize() == "True"
         return df
-    except: return pd.DataFrame()
+    except Exception as e:
+        st.error(f"데이터 로드 중 오류 발생 ({s_name}): {e}")
+        return pd.DataFrame()
 
 # --- [저장 로직] ---
 def handle_save_asset(s_name, date_val, acc, amt_key):
     amt_val = st.session_state[amt_key]
     if amt_val <= 0: return
     df = load_data_safe(s_name)
+    
+    # 데이터가 비어있을 경우를 대비해 컬럼 구조 생성
+    if df.empty:
+        df = pd.DataFrame(columns=['date', 'account', 'amount'])
+
     mask = (df['date'] == str(date_val).upper()) & (df['account'] == str(acc))
-    if mask.any(): df.loc[mask, 'amount'] = int(amt_val)
-    else: df = pd.concat([df, pd.DataFrame([{"date": date_val, "account": acc, "amount": int(amt_val)}])], ignore_index=True)
+    if mask.any(): 
+        df.loc[mask, 'amount'] = int(amt_val)
+    else: 
+        new_row = pd.DataFrame([{"date": str(date_val).upper(), "account": str(acc), "amount": int(amt_val)}])
+        df = pd.concat([df, new_row], ignore_index=True)
+    
     conn.update(worksheet=s_name, data=df)
     st.session_state[amt_key] = 0
     st.toast(f"✅ {acc} 저장 완료!")
@@ -63,7 +84,7 @@ def next_quiz_question():
 
 # --- [사이드바] ---
 with st.sidebar:
-    st.title("Byungjoo Pro v3.9")
+    st.title("Byungjoo Pro v3.9.1")
     menu = st.radio("메뉴", ["💰 연금자산", "💵 개인자산", "🔤 영어공부"])
     st.divider()
     ret_date = datetime.date(2028, 12, 31)
@@ -75,7 +96,7 @@ if menu == "💰 연금자산":
     df_p = load_data_safe("Data")
     t1, t2 = st.tabs(["📊 대시보드", "📝 입력"])
     with t1:
-        if not df_p.empty:
+        if not df_p.empty and 'date' in df_p.columns:
             recent_dates = sorted(df_p['date'].unique())[-3:]
             df_recent = df_p[df_p['date'].isin(recent_dates)]
             m_total = df_recent.groupby('date')['amount'].sum().reset_index().sort_values('date')
@@ -104,7 +125,7 @@ elif menu == "💵 개인자산":
     df_per = load_data_safe("PersonalData")
     t1, t2 = st.tabs(["📊 대시보드", "📝 입력"])
     with t1:
-        if not df_per.empty:
+        if not df_per.empty and 'date' in df_per.columns:
             recent_w = sorted(df_per['date'].unique())[-3:]
             df_recent = df_per[df_per['date'].isin(recent_w)]
             w_total = df_recent.groupby('date')['amount'].sum().reset_index().sort_values('date')
@@ -134,8 +155,7 @@ else:
     t_list, t_input, t_quiz = st.tabs(["📖 문장 리스트", "✍️ 문장 입력", "🧠 퀴즈 테스트"])
     
     with t_list:
-        if not df_en.empty:
-            # 편집 가능한 데이터프레임으로 제공 (암기 여부를 바로 체크 가능)
+        if not df_en.empty and 'english' in df_en.columns:
             edited_df = st.data_editor(
                 df_en[['date', 'english', 'korean', 'memorized']].iloc[::-1],
                 column_config={"memorized": st.column_config.CheckboxColumn("암기완료 ✅")},
@@ -143,7 +163,6 @@ else:
                 use_container_width=True,
                 key="en_editor"
             )
-            # 체크박스 변경 시 시트 업데이트
             if st.button("암기 상태 시트에 저장"):
                 df_en.update(edited_df)
                 conn.update(worksheet="Sheet1", data=df_en)
@@ -157,17 +176,20 @@ else:
         st.button("문장 저장", on_click=handle_save_english)
 
     with t_quiz:
-        unmem = df_en[df_en['memorized'] == False]
-        if not unmem.empty:
-            if 'q_idx' not in st.session_state or st.session_state.q_idx not in unmem.index:
-                st.session_state.q_idx = unmem.sample(n=1).index[0]
-            q = unmem.loc[st.session_state.q_idx]
-            st.info(f"뜻: {q['korean']}")
-            ans = st.text_input("영어로 입력", key="q_in")
-            c1, c2 = st.columns(2)
-            with c1:
-                if st.button("정답 확인"):
-                    if ans.strip().lower() == str(q['english']).strip().lower(): st.success("정답!"); st.balloons()
-                    else: st.error(f"오답! 정답: {q['english']}")
-            with c2: st.button("다음 문제", on_click=next_quiz_question)
-        else: st.success("🎉 모든 문장을 다 외우셨습니다!")
+        if not df_en.empty and 'memorized' in df_en.columns:
+            unmem = df_en[df_en['memorized'] == False]
+            if not unmem.empty:
+                if 'q_idx' not in st.session_state or st.session_state.q_idx not in unmem.index:
+                    st.session_state.q_idx = unmem.sample(n=1).index[0]
+                q = unmem.loc[st.session_state.q_idx]
+                st.info(f"뜻: {q['korean']}")
+                ans = st.text_input("영어로 입력", key="q_in")
+                c1, c2 = st.columns(2)
+                with c1:
+                    if st.button("정답 확인"):
+                        if ans.strip().lower() == str(q['english']).strip().lower(): 
+                            st.success("정답!"); st.balloons()
+                        else: 
+                            st.error(f"오답! 정답: {q['english']}")
+                with c2: st.button("다음 문제", on_click=next_quiz_question)
+            else: st.success("🎉 모든 문장을 다 외우셨습니다!")
