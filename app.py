@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 import os
 
 # 1. 앱 설정
-st.set_page_config(page_title="Byungjoo Pro v4.4", layout="wide")
+st.set_page_config(page_title="Byungjoo Pro v4.5", layout="wide")
 
 # 2. 구글 시트 연결 (원본 유지)
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1LrVto7YUbodWwGsRBQ0PR7evNnEmDtf_gNEj8gM7ngA/edit#gid=0"
@@ -31,14 +31,19 @@ def load_data_safe(s_name):
         st.error(f"❌ '{s_name}' 로드 실패: {e}")
         return pd.DataFrame()
 
-# --- [도서 관리 로드/저장 - 연도 표기 수정 반영] ---
+# --- [도서 관리 로드/저장 - 0년 및 빈 행 제거 로직 강화] ---
 def load_book_data():
     if os.path.exists('books.csv'):
         try:
             df = pd.read_csv('books.csv')
+            # 1. 제목이 없는 빈 행(None/NaN) 원천 제거
+            df = df.dropna(subset=['제목'])
             df['구입일'] = pd.to_datetime(df['구입일']).dt.date
-            # 연도를 정수형으로 확실히 변환하여 .0 방지
+            # 2. 연도 정수화 및 0년 제거를 위한 처리
             df['연도'] = pd.to_datetime(df['구입일']).dt.year.fillna(0).astype(int)
+            df = df[df['연도'] > 0] 
+            # 3. 가격 및 별점 정수화 (소수점 제거)
+            df['가격'] = pd.to_numeric(df['가격'], errors='coerce').fillna(0).astype(int)
             df['별점'] = pd.to_numeric(df['별점'], errors='coerce').fillna(5).astype(int)
             return df
         except:
@@ -77,17 +82,18 @@ def handle_save_english():
 
 # --- [사이드바] ---
 with st.sidebar:
-    st.title("Byungjoo Pro v4.4")
+    st.title("Byungjoo Pro v4.5")
     menu = st.radio("메뉴", ["💰 연금자산", "💵 개인자산", "🔤 영어공부", "📚 도서관리"])
     st.divider()
     ret_date = datetime.date(2028, 12, 31)
     st.metric("은퇴 D-Day", f"D-{(ret_date - datetime.date.today()).days}")
 
-# --- [메인 로직 - 연금/개인자산/영어는 원본 유지] ---
+# --- [메인 로직] ---
 if menu == "💰 연금자산":
     st.header("💰 연금자산 관리")
     df_p = load_data_safe("Data")
     t1, t2 = st.tabs(["📊 대시보드", "📝 입력"])
+    # (연금자산 내부 로직 원본 유지...)
     with t1:
         if not df_p.empty and 'date' in df_p.columns:
             dates = sorted([str(d) for d in df_p['date'].unique()])
@@ -187,79 +193,83 @@ elif menu == "🔤 영어공부":
                 st.button("다음 문제", on_click=next_q)
             else: st.success("🎉 완료!")
 
-# --- [📚 도서관리 메뉴 - 4.4 업데이트] ---
+# --- [📚 도서관리 메뉴 - 4.5 수정] ---
 elif menu == "📚 도서관리":
     st.header("📚 도서 관리 시스템")
     df_books = load_book_data()
 
-    # (1) 상단 통계 UI - 연도 표기 .0 제거 및 명칭 변경
+    # (1) 상단 통계 - 0년 제외 및 3년 고정
     st.subheader("📊 연도별 독서 현황")
-    if not df_books.empty:
-        c1, c2, c3 = st.columns([1, 1, 2])
-        available_years = sorted(df_books['연도'].unique(), reverse=True)
-        # 표시 형식을 '2026년'으로 변경
-        sel_year_label = c1.selectbox("조회 연도 선택", options=[f"{y}년" for y in available_years], key="stat_year_sel")
-        sel_year = int(sel_year_label.replace("년", ""))
-        
-        year_df = df_books[df_books['연도'] == sel_year]
-        
-        c2.metric(f"{sel_year}년 독서량", f"{len(year_df)} 권")
-        c3.metric(f"{sel_year}년 도서 구입비", f"₩{int(year_df['가격'].sum()):,}")
-        st.divider()
+    c1, c2, c3 = st.columns([1, 1, 2])
+    # 0년 제외하고 2026, 2027, 2028만 선택지로 제공
+    sel_year_label = c1.selectbox("조회 연도 선택", options=["2026년", "2027년", "2028년"], key="stat_year_sel")
+    sel_year = int(sel_year_label.replace("년", ""))
+    
+    year_df = df_books[df_books['연도'] == sel_year]
+    
+    c2.metric(f"{sel_year}년 독서량", f"{len(year_df)} 권")
+    c3.metric(f"{sel_year}년 도서 구입비", f"₩{int(year_df['가격'].sum()):,}")
+    st.divider()
 
-    tab1, tab2, tab3 = st.tabs(["📖 서재 보기 (리스트)", "➕ 신규 등록", "⚙️ 관리/수정/삭제"])
+    tab1, tab2, tab3 = st.tabs(["📖 서재 보기", "➕ 신규 등록", "⚙️ 관리/수정/삭제"])
 
-    with tab1: # 리스트 형식 + 넘버링 페이지네이션
+    with tab1: # 서재 보기 (리스트)
         if not df_books.empty:
-            # 최신 입력순 정렬 (인덱스 역순)
-            d_view = df_books.iloc[::-1].copy()
-            
-            # 검색/필터
+            d_view = df_books.iloc[::-1].copy() # 최신순
             f1, f2 = st.columns(2)
-            y_f = f1.multiselect("연도 필터", options=[f"{y}년" for y in available_years])
+            y_f = f1.multiselect("연도 필터", options=["2026년", "2027년", "2028년"])
             if y_f:
                 y_f_ints = [int(y.replace("년", "")) for y in y_f]
                 d_view = d_view[d_view['연도'].isin(y_f_ints)]
             
-            # 페이지네이션 로직 (10개씩)
             items_per_page = 10
-            total_pages = (len(d_view) // items_per_page) + (1 if len(d_view) % items_per_page > 0 else 0)
+            total_pages = max(1, (len(d_view) // items_per_page) + (1 if len(d_view) % items_per_page > 0 else 0))
+            page = st.number_input("페이지", min_value=1, max_value=total_pages, step=1)
+            start_idx = (page - 1) * items_per_page
+            end_idx = start_idx + items_per_page
             
-            if total_pages > 0:
-                page = st.number_input("페이지", min_value=1, max_value=total_pages, step=1)
-                start_idx = (page - 1) * items_per_page
-                end_idx = start_idx + items_per_page
-                
-                # 표 형식으로 깔끔하게 표시
-                st.table(d_view[['구입일', '제목', '저자', '분류', '별점', '가격']].iloc[start_idx:end_idx].assign(
-                    별점=lambda x: x['별점'].map(lambda s: '⭐' * int(s))
-                ))
-                st.caption(f"총 {len(d_view)}권 중 {start_idx+1}-{min(end_idx, len(d_view))}권 표시 (전체 {total_pages}페이지)")
+            # 가격 소수점 제거 및 별점 표시
+            st.table(d_view[['구입일', '제목', '저자', '분류', '별점', '가격']].iloc[start_idx:end_idx].assign(
+                별점=lambda x: x['별점'].map(lambda s: '⭐' * int(s)),
+                가격=lambda x: x['가격'].map(lambda p: f"{int(p):,}")
+            ))
         else:
             st.info("데이터가 없습니다.")
 
-    with tab2: # 신규 등록
-        with st.form("book_reg_v4", clear_on_submit=True):
+    with tab2: # 신규 등록 (구입처 필드 추가 & 분류 확대)
+        with st.form("book_reg_v45", clear_on_submit=True):
             col1, col2 = st.columns(2)
-            b_t = col1.text_input("제목")
+            b_t = col1.text_input("제목 (필수)")
             b_a = col1.text_input("저자")
-            b_p = col1.number_input("가격", step=1000)
+            b_p = col1.number_input("가격", min_value=0, step=1000)
+            b_s = col1.text_input("구입처 (예: 예스24, 교보문고 등)") # 구입처 추가
+            
             b_d = col2.date_input("구입일", datetime.date.today())
-            b_c = col2.selectbox("분류", ["경제/경영", "자기계발", "에세이", "소설", "역사", "기타"])
+            # 분류 확대
+            b_c = col2.selectbox("분류", ["경제/경영", "자기계발", "IT/과학", "외국어", "심리/인문", "소설", "에세이", "역사", "기타"])
             b_r = col2.slider("별점", 1, 5, 5)
             b_cmt = st.text_area("코멘트")
+            
             if st.form_submit_button("서재에 추가"):
                 if b_t:
-                    new_b = {'제목': b_t, '저자': b_a, '가격': b_p, '구입일': b_d, '분류': b_c, '별점': int(b_r), '코멘트': b_cmt, '연도': b_d.year}
+                    new_b = {'제목': b_t, '저자': b_a, '가격': int(b_p), '구입일': b_d, 
+                             '구입처': b_s, '분류': b_c, '별점': int(b_r), '코멘트': b_cmt, '연도': b_d.year}
                     df_books = pd.concat([df_books, pd.DataFrame([new_b])], ignore_index=True)
                     df_books.to_csv('books.csv', index=False)
                     st.success(f"'{b_t}' 등록 완료!"); st.rerun()
+                else:
+                    st.error("제목은 꼭 입력해야 합니다.")
 
     with tab3: # 관리/수정/삭제
-        st.write("💡 표에서 내용을 수정하거나, 행을 선택한 후 `Delete` 키를 눌러 삭제할 수 있습니다.")
-        # num_rows="dynamic" 옵션이 삭제/추가를 가능하게 함
-        e_df = st.data_editor(df_books, num_rows="dynamic", use_container_width=True, key="book_editor_final")
-        if st.button("💾 변경사항(수정/삭제) 최종 저장"):
+        st.write("💡 표에서 내용을 수정하거나 행을 삭제(Delete키)한 후 아래 저장 버튼을 누르세요.")
+        # 빈 제목 행이 표시되지 않도록 한 번 더 필터링하여 에디터에 노출
+        df_books_clean = df_books.dropna(subset=['제목'])
+        e_df = st.data_editor(df_books_clean, num_rows="dynamic", use_container_width=True, key="book_editor_v45")
+        if st.button("💾 변경사항 최종 저장"):
+            # 저장 시 타입 강제 정제
+            e_df = e_df.dropna(subset=['제목'])
+            e_df['가격'] = pd.to_numeric(e_df['가격'], errors='coerce').fillna(0).astype(int)
             e_df['별점'] = pd.to_numeric(e_df['별점'], errors='coerce').fillna(5).astype(int)
+            e_df['연도'] = pd.to_datetime(e_df['구입일']).dt.year
             e_df.to_csv('books.csv', index=False)
-            st.success("변경사항이 성공적으로 저장되었습니다!"); st.rerun()
+            st.success("성공적으로 저장되었습니다!"); st.rerun()
