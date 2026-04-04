@@ -5,39 +5,22 @@ import datetime
 import plotly.graph_objects as go
 
 # 1. 앱 설정
-st.set_page_config(page_title="Byungjoo Pro v3.9.8", layout="wide")
+st.set_page_config(page_title="Byungjoo Pro v3.9.9", layout="wide")
 
-# 2. 구글 시트 연결
+# 2. 구글 시트 연결 및 고정 주소 설정
+# Byungjoo님이 주신 시트 주소를 직접 사용합니다.
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1LrVto7YUbodWwGsRBQ0PR7evNnEmDtf_gNEj8gM7ngA/edit#gid=0"
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- [도우미 함수: 첫 번째 시트 이름 자동 찾기] ---
-def get_first_sheet_name():
-    try:
-        # 전체 스프레드시트의 모든 워크시트 목록을 가져옵니다.
-        all_sheets = conn.client.open_as_url(st.secrets["connections"]["gsheets"]["spreadsheet"]).worksheets()
-        return all_sheets[0].title # 첫 번째 탭의 이름을 반환
-    except:
-        return "Sheet1" # 실패 시 기본값
-
-# 영어 공부용 시트 이름을 자동으로 알아냅니다.
-ENGLISH_SHEET = get_first_sheet_name()
-
-def get_w_label_python(w_key):
-    try:
-        w_key = str(w_key).upper().strip()
-        if 'W' not in w_key: return w_key
-        year = int(w_key[1:5])
-        week_num = int(w_key.split('W')[1])
-        d = datetime.date(year, 1, 1) + datetime.timedelta(weeks=week_num-1)
-        return f"{d.month}월 {((d.day-1)//7)+1}주 (W{week_num})"
-    except: return w_key
-
+# --- [도우미 함수: 시트 로드 로직 최적화] ---
 def load_data_safe(s_name):
     try:
-        df = conn.read(worksheet=s_name, ttl=0)
+        # 스프레드시트 URL을 명시적으로 지정하여 데이터를 읽어옵니다.
+        df = conn.read(spreadsheet=SHEET_URL, worksheet=s_name, ttl=0)
         if df is None or df.empty:
             return pd.DataFrame()
         
+        # 컬럼명 전처리 (공백 제거 및 소문자화)
         df.columns = [str(c).strip().lower() for c in df.columns]
         df = df.dropna(how='all')
         
@@ -48,7 +31,7 @@ def load_data_safe(s_name):
             if 'amount' in df.columns:
                 df['amount'] = pd.to_numeric(df['amount'].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
         
-        elif s_name == ENGLISH_SHEET:
+        elif s_name == "Sheet1":
             if 'memorized' not in df.columns:
                 df['memorized'] = False
             else:
@@ -56,36 +39,44 @@ def load_data_safe(s_name):
                 
         return df
     except Exception as e:
-        # 로드 실패 시 다시 한 번 탭 이름을 출력해서 확인 가능하게 함
-        st.error(f"❌ '{s_name}' 로드 실패 (원인: {e})")
+        st.error(f"❌ '{s_name}' 로드 실패. (탭 이름이 'Sheet1'인지 확인해주세요)")
         return pd.DataFrame()
 
 # --- [저장 로직] ---
 def handle_save_asset(s_name, date_val, acc, amt_key):
     amt_val = st.session_state[amt_key]
     if amt_val <= 0: return
+    
     df = load_data_safe(s_name)
     if df.empty:
         df = pd.DataFrame(columns=['date', 'account', 'amount', 'memo'])
+        
     target_date = str(date_val).strip().upper()
     mask = (df['date'] == target_date) & (df['account'] == str(acc))
-    if mask.any(): df.loc[mask, 'amount'] = int(amt_val)
+    
+    if mask.any(): 
+        df.loc[mask, 'amount'] = int(amt_val)
     else: 
         new_row = pd.DataFrame([{"date": target_date, "account": str(acc), "amount": int(amt_val), "memo": ""}])
         df = pd.concat([df, new_row], ignore_index=True)
-    conn.update(worksheet=s_name, data=df)
+    
+    conn.update(spreadsheet=SHEET_URL, worksheet=s_name, data=df)
     st.session_state[amt_key] = 0
     st.toast(f"✅ {acc} 저장 완료!")
 
 def handle_save_english():
     en, ko = st.session_state.new_en, st.session_state.new_ko
     if en and ko:
-        df_en = load_data_safe(ENGLISH_SHEET)
+        s_name = "Sheet1"
+        df_en = load_data_safe(s_name)
         if df_en.empty:
             df_en = pd.DataFrame(columns=['date', 'english', 'korean', 'memorized'])
+            
         new_row = pd.DataFrame([{"date": str(datetime.date.today()), "english": en, "korean": ko, "memorized": False}])
         df_en = pd.concat([df_en, new_row], ignore_index=True)
-        conn.update(worksheet=ENGLISH_SHEET, data=df_en)
+        
+        # 업데이트 시에도 URL을 명시합니다.
+        conn.update(spreadsheet=SHEET_URL, worksheet=s_name, data=df_en)
         st.session_state.new_en = ""; st.session_state.new_ko = ""
         st.toast("✅ 문장 저장 완료!")
 
@@ -95,7 +86,7 @@ def next_quiz_question():
 
 # --- [사이드바] ---
 with st.sidebar:
-    st.title("Byungjoo Pro v3.9.8")
+    st.title("Byungjoo Pro v3.9.9")
     menu = st.radio("메뉴", ["💰 연금자산", "💵 개인자산", "🔤 영어공부"])
     st.divider()
     ret_date = datetime.date(2028, 12, 31)
@@ -113,12 +104,14 @@ if menu == "💰 연금자산":
                 recent_dates = available_dates[-3:]
                 df_recent = df_p[df_p['date'].isin(recent_dates)]
                 m_total = df_recent.groupby('date')['amount'].sum().reset_index().sort_values('date')
+                
                 cur = m_total.iloc[-1]['amount']
                 prev = m_total.iloc[-2]['amount'] if len(m_total)>1 else cur
                 diff = cur - prev
                 c1, c2 = st.columns(2)
                 c1.metric(f"{recent_dates[-1]} 합계", f"{int(cur):,}원")
                 c2.metric("전월 대비", f"{(diff/prev*100) if prev!=0 else 0:+.1f}%", f"{int(diff):+,}원")
+                
                 fig = go.Figure()
                 for acc in sorted(df_recent['account'].unique()):
                     acc_df = df_recent[df_recent['account'] == acc]
@@ -133,21 +126,34 @@ elif menu == "💵 개인자산":
     t1, t2 = st.tabs(["📊 대시보드", "📝 입력"])
     with t1:
         if not df_per.empty and 'date' in df_per.columns:
+            # 주차 라벨 계산용 헬퍼 함수 호출 위치 수정
+            def get_w_label(w_key):
+                try:
+                    w_key = str(w_key).upper().strip()
+                    if 'W' not in w_key: return w_key
+                    year = int(w_key[1:5])
+                    week_num = int(w_key.split('W')[1])
+                    d = datetime.date(year, 1, 1) + datetime.timedelta(weeks=week_num-1)
+                    return f"{d.month}월 {((d.day-1)//7)+1}주 (W{week_num})"
+                except: return w_key
+
             available_weeks = sorted([str(d) for d in df_per['date'].unique()])
             if available_weeks:
                 recent_w = available_weeks[-3:]
                 df_recent = df_per[df_per['date'].isin(recent_w)]
                 w_total = df_recent.groupby('date')['amount'].sum().reset_index().sort_values('date')
+                
                 cur = w_total.iloc[-1]['amount']
                 prev = w_total.iloc[-2]['amount'] if len(w_total)>1 else cur
                 diff = cur - prev
                 c1, c2 = st.columns(2)
-                c1.metric(f"{get_w_label_python(recent_w[-1])} 합계", f"{int(cur):,}원")
+                c1.metric(f"{get_w_label(recent_w[-1])} 합계", f"{int(cur):,}원")
                 c2.metric("전주 대비", f"{(diff/prev*100) if prev!=0 else 0:+.1f}%", f"{int(diff):+,}원")
+                
                 fig = go.Figure()
                 for acc in sorted(df_recent['account'].unique()):
                     acc_df = df_recent[df_recent['account'] == acc]
-                    fig.add_trace(go.Bar(x=[get_w_label_python(d) for d in acc_df['date']], y=acc_df['amount'], name=acc, hovertemplate="<b>%{fullData.name}</b><br>금액: %{y:,.0f}원<extra></extra>"))
+                    fig.add_trace(go.Bar(x=[get_w_label(d) for d in acc_df['date']], y=acc_df['amount'], name=acc, hovertemplate="<b>%{fullData.name}</b><br>금액: %{y:,.0f}원<extra></extra>"))
                 fig.update_layout(barmode='stack', xaxis_type='category', height=400)
                 st.plotly_chart(fig, use_container_width=True)
         else: st.info("'PersonalData' 탭 데이터를 확인하세요.")
@@ -162,8 +168,7 @@ elif menu == "💵 개인자산":
 
 else:
     st.header("🔤 Byungjoo의 영어 공부")
-    # [핵심] 이제 ENGLISH_SHEET는 파일의 첫 번째 탭 이름을 자동으로 가져옵니다.
-    df_en = load_data_safe(ENGLISH_SHEET)
+    df_en = load_data_safe("Sheet1")
     t_list, t_input, t_quiz = st.tabs(["📖 문장 리스트", "✍️ 문장 입력", "🧠 퀴즈 테스트"])
     
     with t_list:
@@ -180,11 +185,11 @@ else:
                 df_en.update(edited_df)
                 save_df = df_en.copy()
                 save_df['memorized'] = save_df['memorized'].astype(str).str.upper()
-                conn.update(worksheet=ENGLISH_SHEET, data=save_df)
+                conn.update(spreadsheet=SHEET_URL, worksheet="Sheet1", data=save_df)
                 st.toast("✅ 암기 상태 업데이트 완료!")
                 st.rerun()
         else:
-            st.warning(f"⚠️ 시트 로딩 중입니다. (인식된 시트 이름: {ENGLISH_SHEET})")
+            st.warning("⚠️ 'Sheet1' 탭을 불러올 수 없습니다. 탭 이름이 정확히 'Sheet1'인지 확인해주세요.")
         
     with t_input:
         st.text_input("영어 문장", key="new_en")
