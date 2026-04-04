@@ -5,7 +5,7 @@ import datetime
 import plotly.graph_objects as go
 
 # 1. 앱 설정
-st.set_page_config(page_title="Byungjoo Pro v3.9.1", layout="wide")
+st.set_page_config(page_title="Byungjoo Pro v3.9.2", layout="wide")
 
 # 2. 구글 시트 연결
 conn = st.connection("gsheets", type=GSheetsConnection)
@@ -23,47 +23,50 @@ def get_w_label_python(w_key):
 def load_data_safe(s_name):
     try:
         df = conn.read(worksheet=s_name, ttl=0)
-        if df is None or df.empty: return pd.DataFrame()
-        
-        # [핵심 수정] 모든 컬럼명을 소문자로 통일하고 앞뒤 공백 제거 (KeyError 방지)
-        df.columns = [str(c).strip().lower() for c in df.columns]
+        if df is None or df.empty: 
+            return pd.DataFrame(columns=['date', 'account', 'amount', 'memo'])
         
         df = df.dropna(how='all')
-        if s_name in ["Data", "PersonalData"]:
-            # 'date'와 'account' 컬럼이 있는지 확인 후 처리
-            cols = df.columns.tolist()
-            if 'date' in cols and 'account' in cols:
-                df = df.dropna(subset=['date', 'account'])
-                if 'amount' in cols:
-                    df['amount'] = pd.to_numeric(df['amount'].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
-                df['date'] = df['date'].astype(str).str.upper().str.strip()
-        elif s_name == "Sheet1":
-            if 'english' in df.columns:
-                df = df.dropna(subset=['english'])
-                if 'memorized' in df.columns:
-                    df['memorized'] = df['memorized'].astype(str).str.capitalize() == "True"
+        
+        # 금액 데이터 숫자 변환 (amount 컬럼이 있을 때만)
+        if 'amount' in df.columns:
+            df['amount'] = pd.to_numeric(df['amount'].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
+        
+        # 날짜 데이터 공백 제거 및 대문자화 (date 컬럼이 있을 때만)
+        if 'date' in df.columns:
+            df['date'] = df['date'].astype(str).str.strip().str.upper()
+            
         return df
     except Exception as e:
-        st.error(f"데이터 로드 중 오류 발생 ({s_name}): {e}")
-        return pd.DataFrame()
+        st.error(f"데이터 로드 실패 ({s_name}): {e}")
+        return pd.DataFrame(columns=['date', 'account', 'amount', 'memo'])
 
 # --- [저장 로직] ---
 def handle_save_asset(s_name, date_val, acc, amt_key):
     amt_val = st.session_state[amt_key]
     if amt_val <= 0: return
+    
+    # 최신 데이터 불러오기
     df = load_data_safe(s_name)
     
-    # 데이터가 비어있을 경우를 대비해 컬럼 구조 생성
-    if df.empty:
-        df = pd.DataFrame(columns=['date', 'account', 'amount'])
-
-    mask = (df['date'] == str(date_val).upper()) & (df['account'] == str(acc))
-    if mask.any(): 
-        df.loc[mask, 'amount'] = int(amt_val)
-    else: 
-        new_row = pd.DataFrame([{"date": str(date_val).upper(), "account": str(acc), "amount": int(amt_val)}])
+    # [방어 코드] date_val을 시트 형식과 맞춤
+    target_date = str(date_val).strip().upper()
+    
+    # [핵심] 컬럼이 시트에 실제로 존재하는지 확인 후 필터링
+    if 'date' in df.columns and 'account' in df.columns:
+        mask = (df['date'] == target_date) & (df['account'] == str(acc))
+        
+        if mask.any(): 
+            df.loc[mask, 'amount'] = int(amt_val)
+        else: 
+            new_row = pd.DataFrame([{"date": target_date, "account": str(acc), "amount": int(amt_val), "memo": ""}])
+            df = pd.concat([df, new_row], ignore_index=True)
+    else:
+        # 컬럼이 없는 비정상 상황일 경우 강제로 생성해서 추가
+        new_row = pd.DataFrame([{"date": target_date, "account": str(acc), "amount": int(amt_val), "memo": ""}])
         df = pd.concat([df, new_row], ignore_index=True)
     
+    # 시트 업데이트
     conn.update(worksheet=s_name, data=df)
     st.session_state[amt_key] = 0
     st.toast(f"✅ {acc} 저장 완료!")
@@ -72,7 +75,7 @@ def handle_save_english():
     en, ko = st.session_state.new_en, st.session_state.new_ko
     if en and ko:
         df_en = load_data_safe("Sheet1")
-        new_row = pd.DataFrame([{"date": str(datetime.date.today()), "english": en, "korean": ko, "memorized": False}])
+        new_row = pd.DataFrame([{"date": str(datetime.date.today()), "english": en, "korean": ko, "memorized": "False"}])
         df_en = pd.concat([df_en, new_row], ignore_index=True)
         conn.update(worksheet="Sheet1", data=df_en)
         st.session_state.new_en = ""; st.session_state.new_ko = ""
@@ -84,7 +87,7 @@ def next_quiz_question():
 
 # --- [사이드바] ---
 with st.sidebar:
-    st.title("Byungjoo Pro v3.9.1")
+    st.title("Byungjoo Pro v3.9.2")
     menu = st.radio("메뉴", ["💰 연금자산", "💵 개인자산", "🔤 영어공부"])
     st.divider()
     ret_date = datetime.date(2028, 12, 31)
@@ -96,21 +99,24 @@ if menu == "💰 연금자산":
     df_p = load_data_safe("Data")
     t1, t2 = st.tabs(["📊 대시보드", "📝 입력"])
     with t1:
-        if not df_p.empty and 'date' in df_p.columns:
+        if not df_p.empty and 'date' in df_p.columns and len(df_p) > 0:
             recent_dates = sorted(df_p['date'].unique())[-3:]
             df_recent = df_p[df_p['date'].isin(recent_dates)]
             m_total = df_recent.groupby('date')['amount'].sum().reset_index().sort_values('date')
-            cur, prev = m_total.iloc[-1]['amount'], m_total.iloc[-2]['amount'] if len(m_total)>1 else m_total.iloc[-1]['amount']
-            diff = cur - prev
-            c1, c2 = st.columns(2)
-            c1.metric(f"{recent_dates[-1]} 합계", f"{int(cur):,}원")
-            c2.metric("전월 대비", f"{(diff/prev*100) if prev!=0 else 0:+.1f}%", f"{int(diff):+,}원")
-            fig = go.Figure()
-            for acc in sorted(df_recent['account'].unique()):
-                acc_df = df_recent[df_recent['account'] == acc]
-                fig.add_trace(go.Bar(x=acc_df['date'], y=acc_df['amount'], name=acc, hovertemplate="<b>%{fullData.name}</b><br>금액: %{y:,.0f}원<extra></extra>"))
-            fig.update_layout(barmode='stack', xaxis_type='category', height=400)
-            st.plotly_chart(fig, use_container_width=True)
+            if not m_total.empty:
+                cur = m_total.iloc[-1]['amount']
+                prev = m_total.iloc[-2]['amount'] if len(m_total)>1 else cur
+                diff = cur - prev
+                c1, c2 = st.columns(2)
+                c1.metric(f"{recent_dates[-1]} 합계", f"{int(cur):,}원")
+                c2.metric("전월 대비", f"{(diff/prev*100) if prev!=0 else 0:+.1f}%", f"{int(diff):+,}원")
+                fig = go.Figure()
+                for acc in sorted(df_recent['account'].unique()):
+                    acc_df = df_recent[df_recent['account'] == acc]
+                    fig.add_trace(go.Bar(x=acc_df['date'], y=acc_df['amount'], name=acc, hovertemplate="<b>%{fullData.name}</b><br>금액: %{y:,.0f}원<extra></extra>"))
+                fig.update_layout(barmode='stack', xaxis_type='category', height=400)
+                st.plotly_chart(fig, use_container_width=True)
+        else: st.info("데이터가 충분하지 않습니다.")
 
     with t2:
         c1, c2 = st.columns(2)
@@ -125,21 +131,24 @@ elif menu == "💵 개인자산":
     df_per = load_data_safe("PersonalData")
     t1, t2 = st.tabs(["📊 대시보드", "📝 입력"])
     with t1:
-        if not df_per.empty and 'date' in df_per.columns:
+        if not df_per.empty and 'date' in df_per.columns and len(df_per) > 0:
             recent_w = sorted(df_per['date'].unique())[-3:]
             df_recent = df_per[df_per['date'].isin(recent_w)]
             w_total = df_recent.groupby('date')['amount'].sum().reset_index().sort_values('date')
-            cur, prev = w_total.iloc[-1]['amount'], w_total.iloc[-2]['amount'] if len(w_total)>1 else w_total.iloc[-1]['amount']
-            diff = cur - prev
-            c1, c2 = st.columns(2)
-            c1.metric(f"{get_w_label_python(recent_w[-1])} 합계", f"{int(cur):,}원")
-            c2.metric("전주 대비", f"{(diff/prev*100) if prev!=0 else 0:+.1f}%", f"{int(diff):+,}원")
-            fig = go.Figure()
-            for acc in sorted(df_recent['account'].unique()):
-                acc_df = df_recent[df_recent['account'] == acc]
-                fig.add_trace(go.Bar(x=[get_w_label_python(d) for d in acc_df['date']], y=acc_df['amount'], name=acc, hovertemplate="<b>%{fullData.name}</b><br>금액: %{y:,.0f}원<extra></extra>"))
-            fig.update_layout(barmode='stack', xaxis_type='category', height=400)
-            st.plotly_chart(fig, use_container_width=True)
+            if not w_total.empty:
+                cur = w_total.iloc[-1]['amount']
+                prev = w_total.iloc[-2]['amount'] if len(w_total)>1 else cur
+                diff = cur - prev
+                c1, c2 = st.columns(2)
+                c1.metric(f"{get_w_label_python(recent_w[-1])} 합계", f"{int(cur):,}원")
+                c2.metric("전주 대비", f"{(diff/prev*100) if prev!=0 else 0:+.1f}%", f"{int(diff):+,}원")
+                fig = go.Figure()
+                for acc in sorted(df_recent['account'].unique()):
+                    acc_df = df_recent[df_recent['account'] == acc]
+                    fig.add_trace(go.Bar(x=[get_w_label_python(d) for d in acc_df['date']], y=acc_df['amount'], name=acc, hovertemplate="<b>%{fullData.name}</b><br>금액: %{y:,.0f}원<extra></extra>"))
+                fig.update_layout(barmode='stack', xaxis_type='category', height=400)
+                st.plotly_chart(fig, use_container_width=True)
+        else: st.info("데이터가 충분하지 않습니다.")
 
     with t2:
         c1, c2 = st.columns(2)
@@ -177,7 +186,9 @@ else:
 
     with t_quiz:
         if not df_en.empty and 'memorized' in df_en.columns:
-            unmem = df_en[df_en['memorized'] == False]
+            # memorized 컬럼을 불리언으로 변환하여 퀴즈 필터링
+            df_en['memorized_bool'] = df_en['memorized'].astype(str).str.upper() == "TRUE"
+            unmem = df_en[df_en['memorized_bool'] == False]
             if not unmem.empty:
                 if 'q_idx' not in st.session_state or st.session_state.q_idx not in unmem.index:
                     st.session_state.q_idx = unmem.sample(n=1).index[0]
