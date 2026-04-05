@@ -8,14 +8,14 @@ import plotly.express as px
 import requests
 import numpy as np
 
-# 1. 앱 설정
-st.set_page_config(page_title="은퇴 준비하기 v5.3.1", layout="wide")
+# 1. 앱 설정 (v5.4.0 업데이트)
+st.set_page_config(page_title="은퇴 준비하기 v5.4.0", layout="wide")
 
 # 2. 구글 시트 연결
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1LrVto7YUbodWwGsRBQ0PR7evNnEmDtf_gNEj8gM7ngA/edit#gid=0"
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- [데이터 로드 함수 - 절대 보존] ---
+# --- [데이터 로드 함수 - 절대 보존 및 신규 추가] ---
 def load_data_safe(s_name):
     try:
         df = conn.read(spreadsheet=SHEET_URL, worksheet=s_name, ttl=0)
@@ -23,7 +23,7 @@ def load_data_safe(s_name):
         df.columns = [str(c).strip().lower() for c in df.columns]
         df = df.dropna(how='all')
         if 'date' in df.columns: df['date'] = df['date'].astype(str).str.strip().str.upper()
-        if s_name in ["Data", "PersonalData"] and 'amount' in df.columns:
+        if s_name in ["Data", "PersonalData", "CashFlow"] and 'amount' in df.columns:
             df['amount'] = pd.to_numeric(df['amount'].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
         if s_name == "Sheet1" and 'memorized' in df.columns:
             df['memorized'] = df['memorized'].astype(str).str.upper().str.strip() == "TRUE"
@@ -67,7 +67,8 @@ def reset_quiz():
 # --- [사이드바 메뉴] ---
 with st.sidebar:
     st.title("은퇴 준비하기")
-    menu = st.radio("메뉴", ["💰 연금자산", "📈 연금시뮬", "💵 개인자산", "🔤 영어공부", "📚 도서관리", "✈️ 여행관리"])
+    # 메뉴 순서에 '💸 현금흐름' 추가
+    menu = st.radio("메뉴", ["💰 연금자산", "📈 연금시뮬", "💸 현금흐름", "💵 개인자산", "🔤 영어공부", "📚 도서관리", "✈️ 여행관리"])
     st.divider()
     ret_date = datetime.date(2028, 12, 31)
     st.metric("은퇴 D-Day", f"D-{(ret_date - datetime.date.today()).days}")
@@ -166,6 +167,86 @@ elif menu == "📈 연금시뮬":
         **2. 현금성 자산 2년치 보유**: 
         시장이 폭락할 때 연금을 인출하면 자산 회복이 불가능해집니다. 하락장을 버틸 2년치 생활비는 항상 예금/채권으로 별도 관리하세요.
         """)
+
+# --- [신규 기능: 💸 현금흐름] ---
+elif menu == "💸 현금흐름":
+    st.header("💸 현금흐름 관리 (은퇴 준비)")
+    df_cf = load_data_safe("CashFlow")
+    df_bg = load_data_safe("Budgets")
+    
+    t1, t2, t3 = st.tabs(["🚦 소비 신호등", "📝 내역 기록", "📊 지출 패턴 분석"])
+    
+    with t1:
+        st.subheader("🚦 이번 달 소비 신호등")
+        today = datetime.date.today()
+        this_month_str = today.strftime("%Y-%m")
+        
+        # 이번 달 지출 계산
+        if not df_cf.empty:
+            df_cf['date_dt'] = pd.to_datetime(df_cf['date'], errors='coerce')
+            m_exp = df_cf[(df_cf['type'] == 'EXPENSE') & (df_cf['date_dt'].dt.strftime("%Y-%m") == this_month_str)]
+            total_spent = m_exp['amount'].sum()
+        else:
+            total_spent = 0
+            
+        # 예산 가져오기 (Budgets 시트)
+        current_budget = 2500000 # 기본값
+        if not df_bg.empty:
+            bg_row = df_bg[df_bg['period'] == this_month_str]
+            if not bg_row.empty:
+                current_budget = bg_row['budget_amount'].iloc[0]
+        
+        percent = (total_spent / current_budget) * 100 if current_budget > 0 else 0
+        
+        c1, c2, c3 = st.columns(3)
+        if percent < 70:
+            c1.metric("소비 상태", "✅ 안전", f"{int(current_budget-total_spent):,}원 남음")
+            st.success(f"현재 예산의 {percent:.1f}%를 사용 중입니다. 안정적인 흐름이에요!")
+        elif percent < 90:
+            c1.metric("소비 상태", "🟡 주의", f"{int(current_budget-total_spent):,}원 남음")
+            st.warning("지출이 예산의 90%에 육박합니다. 소비를 점검해보세요.")
+        else:
+            c1.metric("소비 상태", "🚨 위험", f"{int(current_budget-total_spent):,}원 남음")
+            st.error("예산 초과! 은퇴 가속도가 늦춰지고 있습니다.")
+
+        st.info(f"💡 **은퇴 가속도:** 이번 달 {int(total_spent/10000)}만원 지출은 미래 은퇴 자산의 가치에 직접적인 영향을 줍니다.")
+
+    with t2:
+        st.subheader("📝 일일 현금흐름 기록")
+        with st.form("cf_form", clear_on_submit=True):
+            c1, c2 = st.columns(2)
+            f_date = c1.date_input("날짜", today)
+            f_type = c1.selectbox("구분", ["EXPENSE", "INCOME"])
+            f_cat = c2.selectbox("카테고리", ["급여", "배당금", "고정지출", "변동지출", "자기계발", "저축/투자", "기타"])
+            f_amt = c2.number_input("금액", min_value=0, step=1000)
+            f_memo = st.text_input("메모")
+            f_rec = st.checkbox("정기 지출/수입 (Recurring)")
+            
+            if st.form_submit_button("기록 저장"):
+                new_data = pd.DataFrame([{
+                    "date": str(f_date), "type": f_type, "category": f_cat,
+                    "amount": f_amt, "memo": f_memo, "is_recurring": str(f_rec).upper()
+                }])
+                df_cf_new = pd.concat([df_cf, new_data], ignore_index=True)
+                # 불필요한 보조 열 제거 후 저장
+                if 'date_dt' in df_cf_new.columns: df_cf_new = df_cf_new.drop(columns=['date_dt'])
+                conn.update(spreadsheet=SHEET_URL, worksheet="CashFlow", data=df_cf_new)
+                st.success("데이터가 성공적으로 저장되었습니다!"); st.rerun()
+
+    with t3:
+        st.subheader("📊 지출 패턴 분석")
+        if not df_cf.empty:
+            exp_df = df_cf[df_cf['type'] == "EXPENSE"]
+            if not exp_df.empty:
+                fig = px.pie(exp_df, values='amount', names='category', hole=0.4, title="전체 지출 비중")
+                st.plotly_chart(fig, use_container_width=True)
+                
+                st.write("**최근 5개 지출 내역**")
+                st.table(exp_df.tail(5)[['date', 'category', 'amount', 'memo']])
+            else:
+                st.info("지출 내역이 없습니다.")
+        else:
+            st.info("데이터가 없습니다. 먼저 내역을 기록해주세요.")
 
 # --- [3. 개인자산] ---
 elif menu == "💵 개인자산":
@@ -294,7 +375,7 @@ elif menu == "📚 도서관리":
                 if eb2.form_submit_button("🗑️ 삭제"):
                     df_books = df_books[df_books['제목'] != sel_b]; df_books.to_csv('books.csv', index=False); st.rerun()
 
-# --- [6. 여행관리 - v5.3.1 수정] ---
+# --- [6. 여행관리] ---
 elif menu == "✈️ 여행관리":
     st.header("✈️ Byungjoo 여행기록")
     df_dest, df_exp = load_travel_data()
@@ -343,14 +424,11 @@ elif menu == "✈️ 여행관리":
                 st.divider()
 
         with t_timeline:
-            st.subheader(f"🗓️ {sel_city} 일정")
+            st.subheader(f"🗓️ {sel_city} 여행지 타임라인")
             if not d_exp.empty:
                 tl_df = d_exp.copy()
-                # 날짜와 시간을 합쳐서 정렬
                 tl_df['datetime'] = pd.to_datetime(tl_df['date'] + ' ' + tl_df['time'])
                 tl_df = tl_df.sort_values('datetime', ascending=True)
-
-                # 수직 타임라인 UI 구현 (마크다운 및 스타일링)
                 st.markdown("""
                     <style>
                     .timeline-container { position: relative; padding: 20px 0; margin-left: 20px; border-left: 2px solid #007bff; }
@@ -361,7 +439,6 @@ elif menu == "✈️ 여행관리":
                     .timeline-amount { font-size: 0.95rem; color: #666; }
                     </style>
                 """, unsafe_allow_html=True)
-
                 st.markdown('<div class="timeline-container">', unsafe_allow_html=True)
                 for _, row in tl_df.iterrows():
                     st.markdown(f"""
