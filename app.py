@@ -8,14 +8,14 @@ import plotly.express as px
 import requests
 import numpy as np
 
-# 1. 앱 설정 (v5.4.0 업데이트)
-st.set_page_config(page_title="은퇴 준비하기 v5.4.0", layout="wide")
+# 1. 앱 설정 (v5.4.2 업데이트)
+st.set_page_config(page_title="은퇴 준비하기 v5.4.2", layout="wide")
 
 # 2. 구글 시트 연결
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1LrVto7YUbodWwGsRBQ0PR7evNnEmDtf_gNEj8gM7ngA/edit#gid=0"
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- [데이터 로드 함수 - 절대 보존 및 신규 추가] ---
+# --- [데이터 로드 함수 - 절대 보존] ---
 def load_data_safe(s_name):
     try:
         df = conn.read(spreadsheet=SHEET_URL, worksheet=s_name, ttl=0)
@@ -67,7 +67,6 @@ def reset_quiz():
 # --- [사이드바 메뉴] ---
 with st.sidebar:
     st.title("은퇴 준비하기")
-    # 메뉴 순서에 '💸 현금흐름' 추가
     menu = st.radio("메뉴", ["💰 연금자산", "📈 연금시뮬", "💸 현금흐름", "💵 개인자산", "🔤 영어공부", "📚 도서관리", "✈️ 여행관리"])
     st.divider()
     ret_date = datetime.date(2028, 12, 31)
@@ -168,85 +167,115 @@ elif menu == "📈 연금시뮬":
         시장이 폭락할 때 연금을 인출하면 자산 회복이 불가능해집니다. 하락장을 버틸 2년치 생활비는 항상 예금/채권으로 별도 관리하세요.
         """)
 
-# --- [신규 기능: 💸 현금흐름] ---
+# --- [현금흐름 v5.4.2 업데이트 섹션] ---
 elif menu == "💸 현금흐름":
     st.header("💸 현금흐름 관리 (은퇴 준비)")
     df_cf = load_data_safe("CashFlow")
     df_bg = load_data_safe("Budgets")
     
-    t1, t2, t3 = st.tabs(["🚦 소비 신호등", "📝 내역 기록", "📊 지출 패턴 분석"])
+    # 1. 상단 필터 (연도/월 선택)
+    c_f1, c_f2 = st.columns(2)
+    sel_y = c_f1.selectbox("조회 연도", [2025, 2026, 2027, 2028], index=1)
+    sel_m = c_f2.selectbox("조회 월", [f"{i:02d}" for i in range(1, 13)], index=datetime.date.today().month-1)
+    sel_period = f"{sel_y}-{sel_m}"
+
+    t1, t2, t3, t4, t5 = st.tabs(["🚦 소비 신호등", "📝 내역 기록", "📊 지출 패턴 분석", "✏️ 내역 수정/삭제", "⚙️ 예산 설정"])
     
     with t1:
-        st.subheader("🚦 이번 달 소비 신호등")
-        today = datetime.date.today()
-        this_month_str = today.strftime("%Y-%m")
+        st.subheader(f"🚦 {sel_period} 소비 신호등")
         
         # 이번 달 지출 계산
+        total_spent = 0
         if not df_cf.empty:
             df_cf['date_dt'] = pd.to_datetime(df_cf['date'], errors='coerce')
-            m_exp = df_cf[(df_cf['type'] == 'EXPENSE') & (df_cf['date_dt'].dt.strftime("%Y-%m") == this_month_str)]
+            m_exp = df_cf[(df_cf['type'] == 'EXPENSE') & (df_cf['date_dt'].dt.strftime("%Y-%m") == sel_period)]
             total_spent = m_exp['amount'].sum()
-        else:
-            total_spent = 0
             
-        # 예산 가져오기 (Budgets 시트)
-        current_budget = 2500000 # 기본값
+        # 예산 가져오기 (하드코딩 제거)
+        current_budget = 0 
         if not df_bg.empty:
-            bg_row = df_bg[df_bg['period'] == this_month_str]
+            bg_row = df_bg[df_bg['period'] == sel_period]
             if not bg_row.empty:
                 current_budget = bg_row['budget_amount'].iloc[0]
         
-        percent = (total_spent / current_budget) * 100 if current_budget > 0 else 0
-        
-        c1, c2, c3 = st.columns(3)
-        if percent < 70:
-            c1.metric("소비 상태", "✅ 안전", f"{int(current_budget-total_spent):,}원 남음")
-            st.success(f"현재 예산의 {percent:.1f}%를 사용 중입니다. 안정적인 흐름이에요!")
-        elif percent < 90:
-            c1.metric("소비 상태", "🟡 주의", f"{int(current_budget-total_spent):,}원 남음")
-            st.warning("지출이 예산의 90%에 육박합니다. 소비를 점검해보세요.")
+        if current_budget == 0:
+            st.info(f"📢 {sel_period}의 예산이 설정되지 않았습니다. '⚙️ 예산 설정' 탭에서 등록해주세요.")
+            c1, c2 = st.columns(2)
+            c1.metric("현재 지출", f"{int(total_spent):,}원")
+            c2.metric("설정 예산", "0원")
         else:
-            c1.metric("소비 상태", "🚨 위험", f"{int(current_budget-total_spent):,}원 남음")
-            st.error("예산 초과! 은퇴 가속도가 늦춰지고 있습니다.")
-
-        st.info(f"💡 **은퇴 가속도:** 이번 달 {int(total_spent/10000)}만원 지출은 미래 은퇴 자산의 가치에 직접적인 영향을 줍니다.")
+            percent = (total_spent / current_budget) * 100
+            c1, c2, c3 = st.columns(3)
+            if percent < 70:
+                c1.metric("소비 상태", "✅ 안전", f"{int(current_budget-total_spent):,}원 남음")
+                st.success(f"예산의 {percent:.1f}% 사용 중. 아주 훌륭합니다!")
+            elif percent < 90:
+                c1.metric("소비 상태", "🟡 주의", f"{int(current_budget-total_spent):,}원 남음")
+                st.warning(f"예산의 {percent:.1f}% 사용 중. 지출을 조절하세요.")
+            else:
+                c1.metric("소비 상태", "🚨 위험", f"{int(current_budget-total_spent):,}원 남음")
+                st.error("예산 초과 임박! 소비 통제가 필요합니다.")
 
     with t2:
         st.subheader("📝 일일 현금흐름 기록")
-        with st.form("cf_form", clear_on_submit=True):
+        with st.form("cf_form_v2", clear_on_submit=True):
             c1, c2 = st.columns(2)
-            f_date = c1.date_input("날짜", today)
+            f_date = c1.date_input("날짜", datetime.date.today())
             f_type = c1.selectbox("구분", ["EXPENSE", "INCOME"])
             f_cat = c2.selectbox("카테고리", ["급여", "배당금", "고정지출", "변동지출", "자기계발", "저축/투자", "기타"])
             f_amt = c2.number_input("금액", min_value=0, step=1000)
             f_memo = st.text_input("메모")
-            f_rec = st.checkbox("정기 지출/수입 (Recurring)")
-            
+            f_rec = st.checkbox("정기 지출/수입 여부")
             if st.form_submit_button("기록 저장"):
-                new_data = pd.DataFrame([{
-                    "date": str(f_date), "type": f_type, "category": f_cat,
-                    "amount": f_amt, "memo": f_memo, "is_recurring": str(f_rec).upper()
-                }])
+                new_data = pd.DataFrame([{"date": str(f_date), "type": f_type, "category": f_cat, "amount": f_amt, "memo": f_memo, "is_recurring": str(f_rec).upper()}])
                 df_cf_new = pd.concat([df_cf, new_data], ignore_index=True)
-                # 불필요한 보조 열 제거 후 저장
                 if 'date_dt' in df_cf_new.columns: df_cf_new = df_cf_new.drop(columns=['date_dt'])
-                conn.update(spreadsheet=SHEET_URL, worksheet="CashFlow", data=df_cf_new)
-                st.success("데이터가 성공적으로 저장되었습니다!"); st.rerun()
+                conn.update(spreadsheet=SHEET_URL, worksheet="CashFlow", data=df_cf_new); st.success("저장되었습니다!"); st.rerun()
 
     with t3:
-        st.subheader("📊 지출 패턴 분석")
+        st.subheader(f"📊 {sel_period} 지출 분석")
         if not df_cf.empty:
-            exp_df = df_cf[df_cf['type'] == "EXPENSE"]
-            if not exp_df.empty:
-                fig = px.pie(exp_df, values='amount', names='category', hole=0.4, title="전체 지출 비중")
+            m_exp_only = df_cf[(df_cf['type'] == 'EXPENSE') & (pd.to_datetime(df_cf['date']).dt.strftime("%Y-%m") == sel_period)]
+            if not m_exp_only.empty:
+                fig = px.pie(m_exp_only, values='amount', names='category', hole=0.4)
                 st.plotly_chart(fig, use_container_width=True)
-                
-                st.write("**최근 5개 지출 내역**")
-                st.table(exp_df.tail(5)[['date', 'category', 'amount', 'memo']])
-            else:
-                st.info("지출 내역이 없습니다.")
-        else:
-            st.info("데이터가 없습니다. 먼저 내역을 기록해주세요.")
+                st.dataframe(m_exp_only[['date', 'category', 'amount', 'memo']].sort_values('date', ascending=False), use_container_width=True)
+            else: st.info("내역이 없습니다.")
+
+    with t4:
+        st.subheader("✏️ 내역 수정 및 삭제")
+        if not df_cf.empty:
+            m_data = df_cf[pd.to_datetime(df_cf['date']).dt.strftime("%Y-%m") == sel_period]
+            if not m_data.empty:
+                edit_list = m_data.apply(lambda x: f"[{x['date']}] {x['category']} - {x['memo']} ({int(x['amount']):,}원)", axis=1).tolist()
+                sel_item = st.selectbox("항목 선택", options=edit_list)
+                sel_idx = m_data.index[edit_list.index(sel_item)]
+                with st.form("edit_cf_v2"):
+                    sel_row = df_cf.loc[sel_idx]
+                    c1, c2 = st.columns(2)
+                    e_date = c1.date_input("날짜", value=pd.to_datetime(sel_row['date']).date())
+                    e_type = c1.selectbox("구분", ["EXPENSE", "INCOME"], index=0 if sel_row['type']=="EXPENSE" else 1)
+                    e_cat = c2.selectbox("카테고리", ["급여", "배당금", "고정지출", "변동지출", "자기계발", "저축/투자", "기타"], index=0)
+                    e_amt = c2.number_input("금액", value=int(sel_row['amount']))
+                    e_memo = st.text_input("메모", value=str(sel_row['memo']))
+                    b1, b2 = st.columns(2)
+                    if b1.form_submit_button("💾 수정"):
+                        df_cf.loc[sel_idx, ['date', 'type', 'category', 'amount', 'memo']] = [str(e_date), e_type, e_cat, e_amt, e_memo]
+                        conn.update(spreadsheet=SHEET_URL, worksheet="CashFlow", data=df_cf.drop(columns=['date_dt'], errors='ignore')); st.rerun()
+                    if b2.form_submit_button("🗑️ 삭제"):
+                        conn.update(spreadsheet=SHEET_URL, worksheet="CashFlow", data=df_cf.drop(sel_idx).drop(columns=['date_dt'], errors='ignore')); st.rerun()
+
+    with t5:
+        st.subheader(f"⚙️ {sel_period} 예산 설정")
+        cur_bg_amt = current_budget
+        with st.form("budget_form"):
+            new_bg = st.number_input("목표 예산(원)", value=int(cur_bg_amt), step=100000)
+            if st.form_submit_button("예산 저장"):
+                if not df_bg.empty and (df_bg['period'] == sel_period).any():
+                    df_bg.loc[df_bg['period'] == sel_period, 'budget_amount'] = new_bg
+                else:
+                    df_bg = pd.concat([df_bg, pd.DataFrame([{"category": "전체", "budget_amount": new_bg, "period": sel_period}])], ignore_index=True)
+                conn.update(spreadsheet=SHEET_URL, worksheet="Budgets", data=df_bg); st.success("예산이 저장되었습니다!"); st.rerun()
 
 # --- [3. 개인자산] ---
 elif menu == "💵 개인자산":
