@@ -9,7 +9,7 @@ import requests
 import numpy as np
 
 # 1. 앱 설정
-st.set_page_config(page_title="은퇴 준비하기 v5.2.3", layout="wide")
+st.set_page_config(page_title="은퇴 준비하기 v5.2.4", layout="wide")
 
 # 2. 구글 시트 연결
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1LrVto7YUbodWwGsRBQ0PR7evNnEmDtf_gNEj8gM7ngA/edit#gid=0"
@@ -60,6 +60,11 @@ def get_rate(unit):
     except:
         return {"TWD": 47, "USD": 1490, "EUR": 1500}.get(unit, 1)
 
+# --- [영어 퀴즈 리셋 함수 - 오류 해결의 핵심] ---
+def reset_quiz():
+    st.session_state.pop('q_idx', None)
+    st.session_state.quiz_input = ""
+
 # --- [사이드바 메뉴] ---
 with st.sidebar:
     st.title("은퇴 준비하기")
@@ -102,7 +107,7 @@ if menu == "💰 연금자산":
             else: df = pd.concat([df, pd.DataFrame([{"date": t_date, "account": p_acc, "amount": int(p_amt), "memo": ""}])], ignore_index=True)
             conn.update(spreadsheet=SHEET_URL, worksheet="Data", data=df); st.toast("저장 완료!"); st.rerun()
 
-# --- [2. 연금시뮬 - 가이드 및 제언 복구 완료] ---
+# --- [2. 연금시뮬] ---
 elif menu == "📈 연금시뮬":
     st.header("📈 은퇴 후 연금 마스터 시뮬레이터")
     df_p = load_data_safe("Data")
@@ -136,24 +141,10 @@ elif menu == "📈 연금시뮬":
             st.plotly_chart(px.area(sim_df, x="날짜", y="잔액", title="자산 추이 예측"), use_container_width=True)
     with tab2:
         st.subheader("📚 퇴직 후 연금 수령 전략")
-        st.markdown("""
-        #### 1. 인출 순서 (Tax-Smart Strategy)
-        - **ISA 자금**: 만기 후 비과세 혜택을 가장 먼저 활용하세요.
-        - **연금저축/IRP (추가납입분)**: 원금은 과세 없이 언제든 인출 가능합니다.
-        - **퇴직연금 (퇴직금 원금)**: 연금 수령 시 퇴직소득세의 30~40%를 감면받습니다.
-        - **연금저축/IRP (공제분+수익)**: 연금소득세(3.3~5.5%)가 부과되므로 가급적 늦게 수령하세요.
-
-        #### 2. 핵심 세금 상식
-        - **연 1,500만원 한도**: 사적연금(수익+공제분) 수령액이 연 1,500만원을 넘으면 종합과세 대상이 될 수 있습니다.
-        - **건강보험료**: 사적연금은 현재 건보료 산정 대상이 아니므로, 국민연금보다 먼저 활용하는 브릿지 전략이 유효합니다.
-        """)
+        st.markdown("""#### 1. 인출 순서 (Tax-Smart)\n- ISA -> 추가납입분 -> 퇴직연금(원금) -> 수익분\n#### 2. 핵심 세금 상식\n- 연 1,500만원 초과 시 종합과세 유의""")
     with tab3:
         st.subheader("💡 Byungjoo님을 위한 제언")
-        st.success("""
-        - **4% 법칙**: 매년 자산의 4% 내외를 인출하면 원금을 크게 해치지 않고 평생 수령할 확률이 높습니다.
-        - **소득 공백기(Bridge)**: 은퇴(2029년)부터 국민연금 수령(2038년)까지의 약 10년을 퇴직금 3.5억으로 어떻게 분배할지가 핵심입니다.
-        - **안전 자산 확보**: 하락장에서도 인출을 멈추지 않으려면 2~3년치 생활비는 항상 현금성 자산으로 보유하세요.
-        """)
+        st.success("- 4% 법칙 활용\n- 소득 공백기(2029~2038) 브릿지 전략 핵심")
 
 # --- [3. 개인자산] ---
 elif menu == "💵 개인자산":
@@ -195,7 +186,7 @@ elif menu == "💵 개인자산":
             else: df = pd.concat([df, pd.DataFrame([{"date": t_date, "account": p_acc_per, "amount": int(per_amt), "memo": ""}])], ignore_index=True)
             conn.update(spreadsheet=SHEET_URL, worksheet="PersonalData", data=df); st.toast("저장 완료!"); st.rerun()
 
-# --- [4. 영어공부 - 퀴즈 리셋 및 수정/삭제 기능 추가 완료] ---
+# --- [4. 영어공부 - 수정/삭제 기능 및 퀴즈 리셋 오류 해결] ---
 elif menu == "🔤 영어공부":
     st.header("🔤 영어 공부")
     df_en = load_data_safe("Sheet1")
@@ -219,26 +210,23 @@ elif menu == "🔤 영어공부":
                     conn.update(spreadsheet=SHEET_URL, worksheet="Sheet1", data=pd.concat([df_en, new_row], ignore_index=True))
                     st.success("✅ 저장되었습니다."); st.rerun()
 
-    with t3: # [신규] 영어 문장 수정 및 삭제 탭
+    with t3:
         st.subheader("✏️ 기존 문장 수정/삭제")
         if not df_en.empty:
             edit_list = df_en.apply(lambda x: f"[{x['date']}] {x['english']}", axis=1).tolist()
             sel_en_label = st.selectbox("수정할 문장 선택", options=edit_list)
             en_idx = df_en.index[edit_list.index(sel_en_label)]
             en_row = df_en.loc[en_idx]
-            
             with st.form("edit_en_form"):
                 e_en = st.text_input("영어 문장", value=str(en_row['english']))
                 e_ko = st.text_input("한글 뜻", value=str(en_row['korean']))
                 c1, c2 = st.columns(2)
                 if c1.form_submit_button("💾 수정 내용 저장"):
-                    df_en.at[en_idx, 'english'] = e_en
-                    df_en.at[en_idx, 'korean'] = e_ko
+                    df_en.at[en_idx, 'english'] = e_en; df_en.at[en_idx, 'korean'] = e_ko
                     conn.update(spreadsheet=SHEET_URL, worksheet="Sheet1", data=df_en)
                     st.success("수정되었습니다."); st.rerun()
                 if c2.form_submit_button("🗑️ 문장 삭제"):
-                    df_en = df_en.drop(en_idx)
-                    conn.update(spreadsheet=SHEET_URL, worksheet="Sheet1", data=df_en)
+                    df_en = df_en.drop(en_idx); conn.update(spreadsheet=SHEET_URL, worksheet="Sheet1", data=df_en)
                     st.warning("삭제되었습니다."); st.rerun()
 
     with t4:
@@ -248,34 +236,27 @@ elif menu == "🔤 영어공부":
                 if 'q_idx' not in st.session_state: st.session_state.q_idx = unmem.sample(n=1).index[0]
                 q = unmem.loc[st.session_state.q_idx]; st.info(f"뜻: {q['korean']}")
                 
-                # [수정] 퀴즈 입력창을 키(key)와 연동하여 리셋 가능하게 함
+                # [오류 수정] 입력창의 값을 session_state와 동기화
                 ans = st.text_input("영어로 입력", key="quiz_input")
                 
-                c1, c2 = st.columns(2)
-                if c1.button("정답 확인"):
+                col_btn1, col_btn2 = st.columns(2)
+                if col_btn1.button("정답 확인"):
                     if ans.strip().lower() == str(q['english']).strip().lower(): st.success("정답!"); st.balloons()
                     else: st.error(f"오답! 정답: {q['english']}")
                 
-                # [수정] 다음 문제 버튼 클릭 시 입력창 리셋 로직
-                if c2.button("다음 문제"):
-                    st.session_state.pop('q_idx', None)
-                    st.session_state.quiz_input = "" # 입력창 비우기
-                    st.rerun()
+                # [오류 수정] 콜백 함수(on_click)를 사용하여 안전하게 리셋
+                st.button("다음 문제", on_click=reset_quiz)
 
-# --- [5. 도서관리 - UI 레이아웃 복구 완료] ---
+# --- [5. 도서관리] ---
 elif menu == "📚 도서관리":
     st.header("📚 도서 관리 시스템")
     df_books = load_book_data()
-    
-    # 상단 메트릭 영역 복구
     c1, c2, c3 = st.columns([1, 1, 2])
     sel_y = c1.selectbox("조회 연도", options=["2026년", "2027년", "2028년"])
     y_int = int(sel_y.replace("년", "")); y_df = df_books[df_books['연도'] == y_int]
     c2.metric(f"{y_int}년 독서량", f"{len(y_df)} 권")
     c3.metric(f"{y_int}년 도서 구입비", f"₩{int(y_df['가격'].sum()):,}")
-    
     st.divider()
-    
     tab1, tab2, tab3 = st.tabs(["📖 서재 보기", "➕ 신규 등록", "✏️ 수정/삭제"])
     with tab1:
         if not df_books.empty:
@@ -302,12 +283,11 @@ elif menu == "📚 도서관리":
                 if st.form_submit_button("수정"):
                     df_books.loc[df_books['제목'] == sel_b, ['제목', '별점']] = [new_t, new_r]; df_books.to_csv('books.csv', index=False); st.rerun()
 
-# --- [6. 여행관리 - 보존] ---
+# --- [6. 여행관리] ---
 elif menu == "✈️ 여행관리":
     st.header("✈️ Byungjoo 여행기록")
     df_dest, df_exp = load_travel_data()
     t_home, t_ledger, t_timeline, t_stats, t_edit = st.tabs(["🗺️ 여행지 관리", "💰 비용 리스트", "🗓️ 타임라인", "📊 지출 요약", "⚙️ 항목 수정/삭제"])
-    
     with t_home:
         with st.expander("📍 신규 여행지 등록하기", expanded=False):
             with st.form("new_dest"):
@@ -315,11 +295,9 @@ elif menu == "✈️ 여행관리":
                 if st.form_submit_button("🌎 저장") and n:
                     new_id = int(df_dest['id'].max() + 1) if not df_dest.empty else 1
                     pd.concat([df_dest, pd.DataFrame([{'id': new_id, 'name': n, 'start_date': str(s), 'end_date': str(e), 'status': '준비중'}])]).to_csv('travel_dest.csv', index=False); st.rerun()
-    
     if not df_dest.empty:
         sel_city = st.sidebar.selectbox("📍 여행지 선택", options=df_dest['name'].tolist()); curr = df_dest[df_dest['name'] == sel_city].iloc[0]
         d_exp = df_exp[df_exp['dest_id'] == curr['id']].copy(); d_exp['amount'] = pd.to_numeric(d_exp['amount'], errors='coerce').fillna(0).astype(int)
-        
         with t_ledger:
             st.metric(f"'{sel_city}' 총 지출", f"₩{int(d_exp['amount'].sum()):,}")
             with st.expander(f"➕ 새 비용/일정 등록", expanded=True):
@@ -330,16 +308,11 @@ elif menu == "✈️ 여행관리":
                     if st.form_submit_button("저장") and it:
                         rate = get_rate(unit); new_e = pd.DataFrame([{'dest_id': curr['id'], 'date': d, 'time': tm.strftime('%H:%M'), 'item': it, 'place': pl, 'category': cat, 'method': pay, 'amount': int(amt*rate), 'unit': 'KRW', 'memo': ''}])
                         pd.concat([df_exp, new_e]).to_csv('travel_expenses.csv', index=False); st.rerun()
-            
             for i, r in d_exp.sort_values(['date', 'time'], ascending=False).iterrows():
                 row_c1, row_c2 = st.columns([4, 1])
-                with row_c1:
-                    st.markdown(f"**{r['item']}** @ {r['place']}")
-                    st.caption(f"{r['date']} {r['time']} | {r['method']}")
-                with row_c2:
-                    st.markdown(f"<p style='text-align:right; font-weight:bold; color:#0d6efd;'>₩{int(r['amount']):,}</p>", unsafe_allow_html=True)
+                with row_c1: st.markdown(f"**{r['item']}** @ {r['place']}"); st.caption(f"{r['date']} {r['time']} | {r['method']}")
+                with row_c2: st.markdown(f"<p style='text-align:right; font-weight:bold; color:#0d6efd;'>₩{int(r['amount']):,}</p>", unsafe_allow_html=True)
                 st.divider()
-                
         with t_timeline:
             for _, r in d_exp.sort_values(['date', 'time'], ascending=True).iterrows():
                 st.markdown(f"""<div style="border-left: 2px solid #0d6efd; padding-left: 15px; position: relative; margin-bottom: 20px;"><div style="color: #0d6efd; font-weight: bold; font-size: 0.9em;">{r['date']} {r['time']}</div><div style="font-weight: bold;">{r['item']} @ {r['place']}</div><div style="font-size: 0.8em; color: gray;">₩{int(r['amount']):,} | {r['method']}</div></div>""", unsafe_allow_html=True)
