@@ -9,7 +9,7 @@ import requests
 import numpy as np
 
 # 1. 앱 설정
-st.set_page_config(page_title="은퇴 준비하기 v5.2.7", layout="wide")
+st.set_page_config(page_title="은퇴 준비하기 v5.2.8", layout="wide")
 
 # 2. 구글 시트 연결
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1LrVto7YUbodWwGsRBQ0PR7evNnEmDtf_gNEj8gM7ngA/edit#gid=0"
@@ -106,7 +106,7 @@ if menu == "💰 연금자산":
             else: df = pd.concat([df, pd.DataFrame([{"date": t_date, "account": p_acc, "amount": int(p_amt), "memo": ""}])], ignore_index=True)
             conn.update(spreadsheet=SHEET_URL, worksheet="Data", data=df); st.toast("저장 완료!"); st.rerun()
 
-# --- [2. 연금시뮬] ---
+# --- [2. 연금시뮬 - 요청 내용으로 원복 완료] ---
 elif menu == "📈 연금시뮬":
     st.header("📈 은퇴 후 연금 마스터 시뮬레이터")
     df_p = load_data_safe("Data")
@@ -118,6 +118,7 @@ elif menu == "📈 연금시뮬":
     with tab1:
         c1, c2 = st.columns([1, 2])
         with c1:
+            st.subheader("⚙️ 조건 설정")
             base_asset = st.number_input("기초 자산 (현재연금+퇴직금)", value=int(current_total + 350000000), step=10000000)
             monthly_withdraw = st.slider("월 희망 수령액 (만 원)", 300, 1000, 600) * 10000
             annual_return = st.slider("기대 연 수익률 (%)", 0.0, 10.0, 4.0, 0.5) / 100
@@ -140,12 +141,22 @@ elif menu == "📈 연금시뮬":
             st.plotly_chart(px.area(sim_df, x="날짜", y="잔액", title="자산 추이 예측"), use_container_width=True)
     with tab2:
         st.subheader("🏛️ 퇴직 후 연금 수령 전략 가이드")
-        st.markdown("""#### 1. 인출 순서\n* ISA -> 추가납입분 -> 퇴직금 원금 -> 수익분\n#### 2. 세금 상식\n* 연 1,500만원 한도 주의 / 건보료 브릿지 활용""")
+        st.markdown("""
+        #### 1. 인출 순서
+        ISA → 추가납입분 → 퇴직금 원금 → 수익분
+        
+        #### 2. 세금 상식
+        연 1,500만원 한도 주의 / 건보료 브릿지 활용
+        """)
     with tab3:
-        st.subheader("💡 은퇴 기획자 제언")
-        st.success("4% 법칙 준수 및 안전 자산 2~3년치 별도 관리 권장")
+        st.subheader("💡 Byungjoo님을 위한 제언")
+        st.success("""
+        - **4% 법칙**: 전체 자산의 4% 이내로 매년 인출하면 원금을 크게 훼손하지 않고 평생 수령할 확률이 높습니다.
+        - **소득 브릿지 전략**: 2029년 은퇴 후 국민연금이 나오는 2038년 8월까지의 약 10년을 퇴직금 3.5억과 ISA 자금으로 안정적으로 유지하는 것이 핵심입니다.
+        - **안전 자산 관리**: 하락장에서도 인출을 계속하려면 2~3년치 생활비는 항상 예금/채권 등 안전자산으로 보유하세요.
+        """)
 
-# --- [3. 개인자산 - NameError 수정 완료] ---
+# --- [3. 개인자산] ---
 elif menu == "💵 개인자산":
     st.header("💵 개인자산 관리")
     df_per = load_data_safe("PersonalData")
@@ -164,10 +175,9 @@ elif menu == "💵 개인자산":
                 w_total = df_r.groupby('date')['amount'].sum().reindex(recent).fillna(0)
                 cur = w_total.iloc[-1]
                 prev = w_total.iloc[-2] if len(w_total) > 1 else cur
-                diff = cur - prev # diff 변수 정의 확인
+                diff = cur - prev
                 c1, c2 = st.columns(2)
                 c1.metric(f"{get_w(recent[-1])} 합계", f"{int(cur):,}원")
-                # NameError 방지: prev, diff 변수 사용 확인
                 c2.metric("전주 대비", f"{(diff/prev*100) if prev!=0 else 0:+.1f}%", f"{int(diff):+,}원")
                 fig = go.Figure()
                 for acc in sorted(df_r['account'].unique()):
@@ -231,7 +241,7 @@ elif menu == "🔤 영어공부":
                     else: st.error(f"오답! 정답: {q['english']}")
                 st.button("다음 문제", on_click=reset_quiz)
 
-# --- [5. 도서관리 - 필드 수정 완전 보강] ---
+# --- [5. 도서관리] ---
 elif menu == "📚 도서관리":
     st.header("📚 도서 관리 시스템")
     df_books = load_book_data()
@@ -273,18 +283,11 @@ elif menu == "📚 도서관리":
                 if eb2.form_submit_button("🗑️ 삭제"):
                     df_books = df_books[df_books['제목'] != sel_b]; df_books.to_csv('books.csv', index=False); st.rerun()
 
-# --- [6. 여행관리 - 카테고리 요약 복구 완료] ---
+# --- [6. 여행관리] ---
 elif menu == "✈️ 여행관리":
     st.header("✈️ Byungjoo 여행기록")
     df_dest, df_exp = load_travel_data()
     t_home, t_ledger, t_timeline, t_stats, t_edit = st.tabs(["🗺️ 여행지 관리", "💰 비용 리스트", "🗓️ 타임라인", "📊 지출 요약", "⚙️ 항목 수정/삭제"])
-    with t_home:
-        with st.expander("📍 신규 여행지 등록", expanded=False):
-            with st.form("new_dest"):
-                c1, c2 = st.columns(2); n = c1.text_input("여행지명"); s = c2.date_input("시작일"); e = c2.date_input("종료일")
-                if st.form_submit_button("🌎 저장") and n:
-                    new_id = int(df_dest['id'].max() + 1) if not df_dest.empty else 1
-                    pd.concat([df_dest, pd.DataFrame([{'id': new_id, 'name': n, 'start_date': str(s), 'end_date': str(e), 'status': '준비중'}])]).to_csv('travel_dest.csv', index=False); st.rerun()
     if not df_dest.empty:
         sel_city = st.sidebar.selectbox("📍 여행지 선택", options=df_dest['name'].tolist()); curr = df_dest[df_dest['name'] == sel_city].iloc[0]
         d_exp = df_exp[df_exp['dest_id'] == curr['id']].copy(); d_exp['amount'] = pd.to_numeric(d_exp['amount'], errors='coerce').fillna(0).astype(int)
@@ -303,12 +306,8 @@ elif menu == "✈️ 여행관리":
                 with row_c1: st.markdown(f"**{r['item']}** @ {r['place']}"); st.caption(f"{r['date']} {r['time']} | {r['method']}")
                 with row_c2: st.markdown(f"<p style='text-align:right; font-weight:bold; color:#0d6efd;'>₩{int(r['amount']):,}</p>", unsafe_allow_html=True)
                 st.divider()
-        with t_timeline:
-            for _, r in d_exp.sort_values(['date', 'time'], ascending=True).iterrows():
-                st.markdown(f"""<div style="border-left: 2px solid #0d6efd; padding-left: 15px; position: relative; margin-bottom: 20px;"><div style="color: #0d6efd; font-weight: bold; font-size: 0.9em;">{r['date']} {r['time']}</div><div style="font-weight: bold;">{r['item']} @ {r['place']}</div><div style="font-size: 0.8em; color: gray;">₩{int(r['amount']):,} | {r['method']}</div></div>""", unsafe_allow_html=True)
         with t_stats:
             col1, col2 = st.columns(2)
-            # [복구 완료] 카테고리별 요약 섹션
             col1.write("**📅 일자별 지출**"); col1.write(d_exp.groupby('date')['amount'].sum().map(lambda x: f"₩{int(x):,}"))
             col1.write("**📁 카테고리별 지출**"); col1.write(d_exp.groupby('category')['amount'].sum().map(lambda x: f"₩{int(x):,}"))
             col2.write("**💳 결제수단별 지출**"); col2.write(d_exp.groupby('method')['amount'].sum().map(lambda x: f"₩{int(x):,}"))
