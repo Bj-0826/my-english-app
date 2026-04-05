@@ -9,7 +9,7 @@ import requests
 import numpy as np
 
 # 1. 앱 설정
-st.set_page_config(page_title="은퇴 준비하기 v5.2.9", layout="wide")
+st.set_page_config(page_title="은퇴 준비하기 v5.3.0", layout="wide")
 
 # 2. 구글 시트 연결
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1LrVto7YUbodWwGsRBQ0PR7evNnEmDtf_gNEj8gM7ngA/edit#gid=0"
@@ -294,15 +294,37 @@ elif menu == "📚 도서관리":
                 if eb2.form_submit_button("🗑️ 삭제"):
                     df_books = df_books[df_books['제목'] != sel_b]; df_books.to_csv('books.csv', index=False); st.rerun()
 
-# --- [6. 여행관리] ---
+# --- [6. 여행관리 - v5.3.0 수정] ---
 elif menu == "✈️ 여행관리":
     st.header("✈️ Byungjoo 여행기록")
     df_dest, df_exp = load_travel_data()
     t_home, t_ledger, t_timeline, t_stats, t_edit = st.tabs(["🗺️ 여행지 관리", "💰 비용 리스트", "🗓️ 타임라인", "📊 지출 요약", "⚙️ 항목 수정/삭제"])
     
+    with t_home:
+        st.subheader("📍 신규 여행지 등록")
+        with st.form("new_dest_form", clear_on_submit=True):
+            c1, c2, c3 = st.columns([2, 2, 1])
+            new_name = c1.text_input("여행지명 (예: 목포, 런던)")
+            new_start = c2.date_input("시작일", datetime.date.today())
+            new_end = c2.date_input("종료일", datetime.date.today() + datetime.timedelta(days=3))
+            new_status = c3.selectbox("상태", ["준비", "여행중", "완료"])
+            if st.form_submit_button("여행지 추가"):
+                if new_name:
+                    new_id = int(df_dest['id'].max() + 1) if not df_dest.empty else 1
+                    new_row = pd.DataFrame([{'id': new_id, 'name': new_name, 'start_date': new_start, 'end_date': new_end, 'status': new_status}])
+                    pd.concat([df_dest, new_row]).to_csv('travel_dest.csv', index=False)
+                    st.success(f"'{new_name}' 여행지가 등록되었습니다!"); st.rerun()
+        
+        st.divider()
+        st.subheader("🗺️ 등록된 여행지 목록")
+        if not df_dest.empty:
+            st.dataframe(df_dest[['name', 'start_date', 'end_date', 'status']], use_container_width=True)
+
     if not df_dest.empty:
-        sel_city = st.sidebar.selectbox("📍 여행지 선택", options=df_dest['name'].tolist()); curr = df_dest[df_dest['name'] == sel_city].iloc[0]
-        d_exp = df_exp[df_exp['dest_id'] == curr['id']].copy(); d_exp['amount'] = pd.to_numeric(d_exp['amount'], errors='coerce').fillna(0).astype(int)
+        sel_city = st.sidebar.selectbox("📍 여행지 선택", options=df_dest['name'].tolist())
+        curr = df_dest[df_dest['name'] == sel_city].iloc[0]
+        d_exp = df_exp[df_exp['dest_id'] == curr['id']].copy()
+        d_exp['amount'] = pd.to_numeric(d_exp['amount'], errors='coerce').fillna(0).astype(int)
         
         with t_ledger:
             st.metric(f"'{sel_city}' 총 지출", f"₩{int(d_exp['amount'].sum()):,}")
@@ -321,37 +343,36 @@ elif menu == "✈️ 여행관리":
                 st.divider()
 
         with t_timeline:
-            st.subheader(f"🗓️ {sel_city} 여행 타임라인")
+            st.subheader(f"🗓️ {sel_city} 지출 타임라인")
             if not d_exp.empty:
-                # 데이터 정렬 및 시간 포맷 생성
                 tl_df = d_exp.copy()
                 tl_df['datetime'] = pd.to_datetime(tl_df['date'] + ' ' + tl_df['time'])
                 tl_df = tl_df.sort_values('datetime')
                 
-                # Plotly Timeline 생성 (Scatter 포맷으로 지점별 지출 표시)
-                fig = px.scatter(tl_df, 
-                                 x="datetime", 
-                                 y="category", 
-                                 size="amount", 
-                                 color="category",
-                                 hover_name="item", 
-                                 text="item",
-                                 title=f"{sel_city} 지출 타임라인 (원 크기 = 지출액)",
-                                 labels={"datetime": "일시", "category": "카테고리"})
+                # 1. 간트 차트 형식의 타임라인
+                fig = px.bar(tl_df, 
+                             x="datetime", 
+                             y="category", 
+                             color="category",
+                             hover_name="item",
+                             text="item",
+                             title=f"{sel_city} 시간순 지출 흐름",
+                             labels={"datetime": "방문 시간", "category": "카테고리"})
                 
-                fig.update_traces(textposition='top center')
-                fig.update_layout(height=500, showlegend=False)
+                fig.update_layout(height=400, showlegend=True, yaxis={'categoryorder':'total ascending'})
                 st.plotly_chart(fig, use_container_width=True)
                 
-                # 상세 리스트형 타임라인
+                # 2. 일자별 요약 카드
                 st.write("---")
                 for day in sorted(tl_df['date'].unique()):
-                    st.markdown(f"#### 📅 {day}")
+                    st.markdown(f"##### 📅 {day}")
                     day_df = tl_df[tl_df['date'] == day]
-                    for _, row in day_df.iterrows():
-                        st.text(f"[{row['time']}] {row['item']} ({row['category']}) - ₩{int(row['amount']):,}")
+                    cols = st.columns(len(day_df) if len(day_df) < 5 else 5)
+                    for idx, (_, row) in enumerate(day_df.iterrows()):
+                        with cols[idx % 5]:
+                            st.info(f"**{row['time']}**\n\n{row['item']}\n\n₩{int(row['amount']):,}")
             else:
-                st.info("아직 등록된 지출 내역이 없습니다.")
+                st.info("등록된 지출 내역이 없어 타임라인을 표시할 수 없습니다.")
 
         with t_stats:
             col1, col2 = st.columns(2)
