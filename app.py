@@ -9,7 +9,7 @@ import requests
 import numpy as np
 
 # 1. 앱 설정
-st.set_page_config(page_title="은퇴 준비하기 v5.3.0", layout="wide")
+st.set_page_config(page_title="은퇴 준비하기 v5.3.1", layout="wide")
 
 # 2. 구글 시트 연결
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1LrVto7YUbodWwGsRBQ0PR7evNnEmDtf_gNEj8gM7ngA/edit#gid=0"
@@ -294,7 +294,7 @@ elif menu == "📚 도서관리":
                 if eb2.form_submit_button("🗑️ 삭제"):
                     df_books = df_books[df_books['제목'] != sel_b]; df_books.to_csv('books.csv', index=False); st.rerun()
 
-# --- [6. 여행관리 - v5.3.0 수정] ---
+# --- [6. 여행관리 - v5.3.1 수정] ---
 elif menu == "✈️ 여행관리":
     st.header("✈️ Byungjoo 여행기록")
     df_dest, df_exp = load_travel_data()
@@ -343,36 +343,38 @@ elif menu == "✈️ 여행관리":
                 st.divider()
 
         with t_timeline:
-            st.subheader(f"🗓️ {sel_city} 지출 타임라인")
+            st.subheader(f"🗓️ {sel_city} 일정")
             if not d_exp.empty:
                 tl_df = d_exp.copy()
+                # 날짜와 시간을 합쳐서 정렬
                 tl_df['datetime'] = pd.to_datetime(tl_df['date'] + ' ' + tl_df['time'])
-                tl_df = tl_df.sort_values('datetime')
-                
-                # 1. 간트 차트 형식의 타임라인
-                fig = px.bar(tl_df, 
-                             x="datetime", 
-                             y="category", 
-                             color="category",
-                             hover_name="item",
-                             text="item",
-                             title=f"{sel_city} 시간순 지출 흐름",
-                             labels={"datetime": "방문 시간", "category": "카테고리"})
-                
-                fig.update_layout(height=400, showlegend=True, yaxis={'categoryorder':'total ascending'})
-                st.plotly_chart(fig, use_container_width=True)
-                
-                # 2. 일자별 요약 카드
-                st.write("---")
-                for day in sorted(tl_df['date'].unique()):
-                    st.markdown(f"##### 📅 {day}")
-                    day_df = tl_df[tl_df['date'] == day]
-                    cols = st.columns(len(day_df) if len(day_df) < 5 else 5)
-                    for idx, (_, row) in enumerate(day_df.iterrows()):
-                        with cols[idx % 5]:
-                            st.info(f"**{row['time']}**\n\n{row['item']}\n\n₩{int(row['amount']):,}")
+                tl_df = tl_df.sort_values('datetime', ascending=True)
+
+                # 수직 타임라인 UI 구현 (마크다운 및 스타일링)
+                st.markdown("""
+                    <style>
+                    .timeline-container { position: relative; padding: 20px 0; margin-left: 20px; border-left: 2px solid #007bff; }
+                    .timeline-item { position: relative; margin-bottom: 30px; padding-left: 30px; }
+                    .timeline-dot { position: absolute; left: -9px; top: 5px; width: 16px; height: 16px; background-color: #007bff; border-radius: 50%; }
+                    .timeline-date { font-size: 0.85rem; color: #007bff; font-weight: bold; margin-bottom: 2px; }
+                    .timeline-title { font-size: 1.1rem; font-weight: bold; color: #333; margin-bottom: 4px; }
+                    .timeline-amount { font-size: 0.95rem; color: #666; }
+                    </style>
+                """, unsafe_allow_html=True)
+
+                st.markdown('<div class="timeline-container">', unsafe_allow_html=True)
+                for _, row in tl_df.iterrows():
+                    st.markdown(f"""
+                        <div class="timeline-item">
+                            <div class="timeline-dot"></div>
+                            <div class="timeline-date">{row['date']} {row['time']} | {row['place']}</div>
+                            <div class="timeline-title">{row['item']}</div>
+                            <div class="timeline-amount">₩{int(row['amount']):,}</div>
+                        </div>
+                    """, unsafe_allow_html=True)
+                st.markdown('</div>', unsafe_allow_html=True)
             else:
-                st.info("등록된 지출 내역이 없어 타임라인을 표시할 수 없습니다.")
+                st.info("등록된 일정이 없습니다. '비용 리스트' 탭에서 항목을 추가해 보세요.")
 
         with t_stats:
             col1, col2 = st.columns(2)
