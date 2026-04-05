@@ -9,7 +9,7 @@ import requests
 import numpy as np
 
 # 1. 앱 설정
-st.set_page_config(page_title="은퇴 준비하기 v5.2.8", layout="wide")
+st.set_page_config(page_title="은퇴 준비하기 v5.2.9", layout="wide")
 
 # 2. 구글 시트 연결
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1LrVto7YUbodWwGsRBQ0PR7evNnEmDtf_gNEj8gM7ngA/edit#gid=0"
@@ -106,7 +106,7 @@ if menu == "💰 연금자산":
             else: df = pd.concat([df, pd.DataFrame([{"date": t_date, "account": p_acc, "amount": int(p_amt), "memo": ""}])], ignore_index=True)
             conn.update(spreadsheet=SHEET_URL, worksheet="Data", data=df); st.toast("저장 완료!"); st.rerun()
 
-# --- [2. 연금시뮬 - 요청 내용으로 원복 완료] ---
+# --- [2. 연금시뮬 - 가이드 섹션 완벽 복구] ---
 elif menu == "📈 연금시뮬":
     st.header("📈 은퇴 후 연금 마스터 시뮬레이터")
     df_p = load_data_safe("Data")
@@ -140,21 +140,18 @@ elif menu == "📈 연금시뮬":
             sim_df = pd.DataFrame({"날짜": dates, "잔액": asset_history})
             st.plotly_chart(px.area(sim_df, x="날짜", y="잔액", title="자산 추이 예측"), use_container_width=True)
     with tab2:
+        # [복구 완료] 요청하신 가이드 텍스트
         st.subheader("🏛️ 퇴직 후 연금 수령 전략 가이드")
         st.markdown("""
         #### 1. 인출 순서
-        ISA → 추가납입분 → 퇴직금 원금 → 수익분
+        **ISA → 추가납입분 → 퇴직금 원금 → 수익분**
         
         #### 2. 세금 상식
-        연 1,500만원 한도 주의 / 건보료 브릿지 활용
+        **연 1,500만원 한도 주의 / 건보료 브릿지 활용**
         """)
     with tab3:
         st.subheader("💡 Byungjoo님을 위한 제언")
-        st.success("""
-        - **4% 법칙**: 전체 자산의 4% 이내로 매년 인출하면 원금을 크게 훼손하지 않고 평생 수령할 확률이 높습니다.
-        - **소득 브릿지 전략**: 2029년 은퇴 후 국민연금이 나오는 2038년 8월까지의 약 10년을 퇴직금 3.5억과 ISA 자금으로 안정적으로 유지하는 것이 핵심입니다.
-        - **안전 자산 관리**: 하락장에서도 인출을 계속하려면 2~3년치 생활비는 항상 예금/채권 등 안전자산으로 보유하세요.
-        """)
+        st.success("- 4% 법칙: 자산의 4% 이내 인출 시 자산 수명 극대화\n- 소득 브릿지(2029~2038) 전략이 은퇴 설계의 핵심")
 
 # --- [3. 개인자산] ---
 elif menu == "💵 개인자산":
