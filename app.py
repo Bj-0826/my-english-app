@@ -9,7 +9,7 @@ import requests
 import numpy as np
 
 # 1. 앱 설정
-st.set_page_config(page_title="은퇴 준비하기 v5.2.4", layout="wide")
+st.set_page_config(page_title="은퇴 준비하기 v5.2.5", layout="wide")
 
 # 2. 구글 시트 연결
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1LrVto7YUbodWwGsRBQ0PR7evNnEmDtf_gNEj8gM7ngA/edit#gid=0"
@@ -60,7 +60,7 @@ def get_rate(unit):
     except:
         return {"TWD": 47, "USD": 1490, "EUR": 1500}.get(unit, 1)
 
-# --- [영어 퀴즈 리셋 함수 - 오류 해결의 핵심] ---
+# --- [콜백 함수] ---
 def reset_quiz():
     st.session_state.pop('q_idx', None)
     st.session_state.quiz_input = ""
@@ -107,7 +107,7 @@ if menu == "💰 연금자산":
             else: df = pd.concat([df, pd.DataFrame([{"date": t_date, "account": p_acc, "amount": int(p_amt), "memo": ""}])], ignore_index=True)
             conn.update(spreadsheet=SHEET_URL, worksheet="Data", data=df); st.toast("저장 완료!"); st.rerun()
 
-# --- [2. 연금시뮬] ---
+# --- [2. 연금시뮬 - 상세 가이드 내용 완벽 복구] ---
 elif menu == "📈 연금시뮬":
     st.header("📈 은퇴 후 연금 마스터 시뮬레이터")
     df_p = load_data_safe("Data")
@@ -119,6 +119,7 @@ elif menu == "📈 연금시뮬":
     with tab1:
         c1, c2 = st.columns([1, 2])
         with c1:
+            st.subheader("⚙️ 조건 설정")
             base_asset = st.number_input("기초 자산 (현재연금+퇴직금)", value=int(current_total + 350000000), step=10000000)
             monthly_withdraw = st.slider("월 희망 수령액 (만 원)", 300, 1000, 600) * 10000
             annual_return = st.slider("기대 연 수익률 (%)", 0.0, 10.0, 4.0, 0.5) / 100
@@ -140,11 +141,27 @@ elif menu == "📈 연금시뮬":
             sim_df = pd.DataFrame({"날짜": dates, "잔액": asset_history})
             st.plotly_chart(px.area(sim_df, x="날짜", y="잔액", title="자산 추이 예측"), use_container_width=True)
     with tab2:
-        st.subheader("📚 퇴직 후 연금 수령 전략")
-        st.markdown("""#### 1. 인출 순서 (Tax-Smart)\n- ISA -> 추가납입분 -> 퇴직연금(원금) -> 수익분\n#### 2. 핵심 세금 상식\n- 연 1,500만원 초과 시 종합과세 유의""")
+        st.subheader("🏛️ 퇴직 후 연금 수령 전략 가이드")
+        st.markdown("""
+        #### 1. 인출 순서 (Tax-Smart 인출 전략)
+        인출할 때는 세금이 낮은 것부터 수령하는 것이 원칙입니다.
+        * **ISA 만기 자금**: 비과세 및 분리과세 혜택 활용 (가장 먼저 사용)
+        * **연금저축/IRP (추가납입분)**: 세액공제 받지 않은 원금은 과세 없이 인출 가능
+        * **퇴직연금 (퇴직금 원금)**: 연금 수령 시 퇴직소득세의 30~40% 감면 혜택
+        * **연금저축/IRP (공제분+수익)**: 연금소득세(3.3~5.5%) 저율 과세 (가장 나중에 사용)
+
+        #### 2. 핵심 세금 상식
+        * **연 1,500만원 한도**: 사적연금(공제분+수익) 수령액이 연 1,500만원을 넘으면 종합과세 또는 15% 분리과세 대상입니다. (퇴직금 원금은 이 한도에 포함되지 않음)
+        * **건강보험료**: 사적연금은 현재 건보료 산정 대상이 아니므로, 국민연금 수령 전까지 '소득 브릿지'로 활용하기 매우 유리합니다.
+        """)
     with tab3:
-        st.subheader("💡 Byungjoo님을 위한 제언")
-        st.success("- 4% 법칙 활용\n- 소득 공백기(2029~2038) 브릿지 전략 핵심")
+        st.subheader("💡 은퇴 기획자 제언")
+        st.success("""
+        #### Byungjoo님을 위한 연금 운용 제언
+        1. **4% 법칙 (Safe Withdrawal Rate)**: 전체 자산의 4% 이내로 매년 인출하면 원금을 크게 훼손하지 않고 평생 수령할 확률이 95% 이상입니다.
+        2. **브릿지 전략 (Bridge Period)**: 2029년 은퇴 후 국민연금이 나오는 2038년 8월까지의 약 10년을 퇴직금 3.5억과 ISA 자금으로 안정적으로 메꾸는 것이 핵심입니다.
+        3. **하락장 방어**: 하락장에서도 인출을 계속하면 자산 회복이 불가능할 수 있습니다. 2~3년치 생활비는 항상 예금/채권 등 안전자산으로 별도 관리하세요.
+        """)
 
 # --- [3. 개인자산] ---
 elif menu == "💵 개인자산":
@@ -186,7 +203,7 @@ elif menu == "💵 개인자산":
             else: df = pd.concat([df, pd.DataFrame([{"date": t_date, "account": p_acc_per, "amount": int(per_amt), "memo": ""}])], ignore_index=True)
             conn.update(spreadsheet=SHEET_URL, worksheet="PersonalData", data=df); st.toast("저장 완료!"); st.rerun()
 
-# --- [4. 영어공부 - 수정/삭제 기능 및 퀴즈 리셋 오류 해결] ---
+# --- [4. 영어공부 - 퀴즈 리셋 로직 안정화] ---
 elif menu == "🔤 영어공부":
     st.header("🔤 영어 공부")
     df_en = load_data_safe("Sheet1")
@@ -223,11 +240,9 @@ elif menu == "🔤 영어공부":
                 c1, c2 = st.columns(2)
                 if c1.form_submit_button("💾 수정 내용 저장"):
                     df_en.at[en_idx, 'english'] = e_en; df_en.at[en_idx, 'korean'] = e_ko
-                    conn.update(spreadsheet=SHEET_URL, worksheet="Sheet1", data=df_en)
-                    st.success("수정되었습니다."); st.rerun()
+                    conn.update(spreadsheet=SHEET_URL, worksheet="Sheet1", data=df_en); st.success("수정 완료!"); st.rerun()
                 if c2.form_submit_button("🗑️ 문장 삭제"):
-                    df_en = df_en.drop(en_idx); conn.update(spreadsheet=SHEET_URL, worksheet="Sheet1", data=df_en)
-                    st.warning("삭제되었습니다."); st.rerun()
+                    df_en = df_en.drop(en_idx); conn.update(spreadsheet=SHEET_URL, worksheet="Sheet1", data=df_en); st.warning("삭제 완료!"); st.rerun()
 
     with t4:
         if not df_en.empty:
@@ -235,19 +250,14 @@ elif menu == "🔤 영어공부":
             if not unmem.empty:
                 if 'q_idx' not in st.session_state: st.session_state.q_idx = unmem.sample(n=1).index[0]
                 q = unmem.loc[st.session_state.q_idx]; st.info(f"뜻: {q['korean']}")
-                
-                # [오류 수정] 입력창의 값을 session_state와 동기화
                 ans = st.text_input("영어로 입력", key="quiz_input")
-                
-                col_btn1, col_btn2 = st.columns(2)
-                if col_btn1.button("정답 확인"):
+                c1, c2 = st.columns(2)
+                if c1.button("정답 확인"):
                     if ans.strip().lower() == str(q['english']).strip().lower(): st.success("정답!"); st.balloons()
                     else: st.error(f"오답! 정답: {q['english']}")
-                
-                # [오류 수정] 콜백 함수(on_click)를 사용하여 안전하게 리셋
                 st.button("다음 문제", on_click=reset_quiz)
 
-# --- [5. 도서관리] ---
+# --- [5. 도서관리 - 레이아웃 복구 완료] ---
 elif menu == "📚 도서관리":
     st.header("📚 도서 관리 시스템")
     df_books = load_book_data()
@@ -270,10 +280,9 @@ elif menu == "📚 도서관리":
             d = tc2.date_input("구입일", datetime.date.today())
             cat = tc2.selectbox("분류", ["경제/경영", "자기계발", "IT/과학", "외국어", "심리/인문", "소설", "에세이", "역사", "기타"])
             r = tc2.slider("별점", 1, 5, 5); cmt = st.text_area("코멘트")
-            if st.form_submit_button("등록"):
-                if t:
-                    new = pd.DataFrame([{'제목': t, '저자': a, '가격': int(p), '구입일': d, '구입처': '', '분류': cat, '별점': int(r), '코멘트': cmt, '연도': d.year}])
-                    pd.concat([df_books, new]).to_csv('books.csv', index=False); st.rerun()
+            if st.form_submit_button("등록") and t:
+                new = pd.DataFrame([{'제목': t, '저자': a, '가격': int(p), '구입일': d, '구입처': '', '분류': cat, '별점': int(r), '코멘트': cmt, '연도': d.year}])
+                pd.concat([df_books, new]).to_csv('books.csv', index=False); st.rerun()
     with tab3:
         if not df_books.empty:
             sel_b = st.selectbox("책 선택", options=df_books.iloc[::-1]['제목'].tolist())
