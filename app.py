@@ -8,8 +8,8 @@ import plotly.express as px
 import requests
 import numpy as np
 
-# 1. 앱 설정 (v5.4.2 업데이트)
-st.set_page_config(page_title="은퇴 준비하기 v5.4.2", layout="wide")
+# 1. 앱 설정 (v5.4.3 업데이트: 카테고리 추가)
+st.set_page_config(page_title="은퇴 준비하기 v5.4.3", layout="wide")
 
 # 2. 구글 시트 연결
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1LrVto7YUbodWwGsRBQ0PR7evNnEmDtf_gNEj8gM7ngA/edit#gid=0"
@@ -167,13 +167,15 @@ elif menu == "📈 연금시뮬":
         시장이 폭락할 때 연금을 인출하면 자산 회복이 불가능해집니다. 하락장을 버틸 2년치 생활비는 항상 예금/채권으로 별도 관리하세요.
         """)
 
-# --- [현금흐름 v5.4.2 업데이트 섹션] ---
+# --- [3. 현금흐름 - 카테고리 업데이트] ---
 elif menu == "💸 현금흐름":
     st.header("💸 현금흐름 관리 (은퇴 준비)")
     df_cf = load_data_safe("CashFlow")
     df_bg = load_data_safe("Budgets")
     
-    # 1. 상단 필터 (연도/월 선택)
+    # 공통 카테고리 리스트 (쇼핑, 외식, 생활비 추가)
+    CF_CATEGORIES = ["급여", "배당금", "고정지출", "변동지출", "자기계발", "저축/투자", "쇼핑", "외식", "생활비", "기타"]
+    
     c_f1, c_f2 = st.columns(2)
     sel_y = c_f1.selectbox("조회 연도", [2025, 2026, 2027, 2028], index=1)
     sel_m = c_f2.selectbox("조회 월", [f"{i:02d}" for i in range(1, 13)], index=datetime.date.today().month-1)
@@ -183,15 +185,12 @@ elif menu == "💸 현금흐름":
     
     with t1:
         st.subheader(f"🚦 {sel_period} 소비 신호등")
-        
-        # 이번 달 지출 계산
         total_spent = 0
         if not df_cf.empty:
             df_cf['date_dt'] = pd.to_datetime(df_cf['date'], errors='coerce')
             m_exp = df_cf[(df_cf['type'] == 'EXPENSE') & (df_cf['date_dt'].dt.strftime("%Y-%m") == sel_period)]
             total_spent = m_exp['amount'].sum()
             
-        # 예산 가져오기 (하드코딩 제거)
         current_budget = 0 
         if not df_bg.empty:
             bg_row = df_bg[df_bg['period'] == sel_period]
@@ -222,7 +221,7 @@ elif menu == "💸 현금흐름":
             c1, c2 = st.columns(2)
             f_date = c1.date_input("날짜", datetime.date.today())
             f_type = c1.selectbox("구분", ["EXPENSE", "INCOME"])
-            f_cat = c2.selectbox("카테고리", ["급여", "배당금", "고정지출", "변동지출", "자기계발", "저축/투자", "기타"])
+            f_cat = c2.selectbox("카테고리", CF_CATEGORIES)
             f_amt = c2.number_input("금액", min_value=0, step=1000)
             f_memo = st.text_input("메모")
             f_rec = st.checkbox("정기 지출/수입 여부")
@@ -255,7 +254,9 @@ elif menu == "💸 현금흐름":
                     c1, c2 = st.columns(2)
                     e_date = c1.date_input("날짜", value=pd.to_datetime(sel_row['date']).date())
                     e_type = c1.selectbox("구분", ["EXPENSE", "INCOME"], index=0 if sel_row['type']=="EXPENSE" else 1)
-                    e_cat = c2.selectbox("카테고리", ["급여", "배당금", "고정지출", "변동지출", "자기계발", "저축/투자", "기타"], index=0)
+                    # 기존 카테고리 인덱스 찾기 시도
+                    cat_idx = CF_CATEGORIES.index(sel_row['category']) if sel_row['category'] in CF_CATEGORIES else 0
+                    e_cat = c2.selectbox("카테고리", CF_CATEGORIES, index=cat_idx)
                     e_amt = c2.number_input("금액", value=int(sel_row['amount']))
                     e_memo = st.text_input("메모", value=str(sel_row['memo']))
                     b1, b2 = st.columns(2)
@@ -277,7 +278,7 @@ elif menu == "💸 현금흐름":
                     df_bg = pd.concat([df_bg, pd.DataFrame([{"category": "전체", "budget_amount": new_bg, "period": sel_period}])], ignore_index=True)
                 conn.update(spreadsheet=SHEET_URL, worksheet="Budgets", data=df_bg); st.success("예산이 저장되었습니다!"); st.rerun()
 
-# --- [3. 개인자산] ---
+# --- [4. 개인자산] ---
 elif menu == "💵 개인자산":
     st.header("💵 개인자산 관리")
     df_per = load_data_safe("PersonalData")
@@ -294,8 +295,7 @@ elif menu == "💵 개인자산":
             if weeks:
                 recent = weeks[-3:]; df_r = df_per[df_per['date'].isin(recent)]
                 w_total = df_r.groupby('date')['amount'].sum().reindex(recent).fillna(0)
-                cur = w_total.iloc[-1]
-                prev = w_total.iloc[-2] if len(w_total) > 1 else cur
+                cur = w_total.iloc[-1]; prev = w_total.iloc[-2] if len(w_total) > 1 else cur
                 diff = cur - prev
                 c1, c2 = st.columns(2)
                 c1.metric(f"{get_w(recent[-1])} 합계", f"{int(cur):,}원")
@@ -318,7 +318,7 @@ elif menu == "💵 개인자산":
             else: df = pd.concat([df, pd.DataFrame([{"date": t_date, "account": p_acc_per, "amount": int(per_amt), "memo": ""}])], ignore_index=True)
             conn.update(spreadsheet=SHEET_URL, worksheet="PersonalData", data=df); st.toast("저장 완료!"); st.rerun()
 
-# --- [4. 영어공부] ---
+# --- [5. 영어공부] ---
 elif menu == "🔤 영어공부":
     st.header("🔤 영어 공부")
     df_en = load_data_safe("Sheet1")
@@ -362,7 +362,7 @@ elif menu == "🔤 영어공부":
                     else: st.error(f"오답! 정답: {q['english']}")
                 st.button("다음 문제", on_click=reset_quiz)
 
-# --- [5. 도서관리] ---
+# --- [6. 도서관리] ---
 elif menu == "📚 도서관리":
     st.header("📚 도서 관리 시스템")
     df_books = load_book_data()
@@ -404,7 +404,7 @@ elif menu == "📚 도서관리":
                 if eb2.form_submit_button("🗑️ 삭제"):
                     df_books = df_books[df_books['제목'] != sel_b]; df_books.to_csv('books.csv', index=False); st.rerun()
 
-# --- [6. 여행관리] ---
+# --- [7. 여행관리] ---
 elif menu == "✈️ 여행관리":
     st.header("✈️ Byungjoo 여행기록")
     df_dest, df_exp = load_travel_data()
@@ -425,10 +425,8 @@ elif menu == "✈️ 여행관리":
                     pd.concat([df_dest, new_row]).to_csv('travel_dest.csv', index=False)
                     st.success(f"'{new_name}' 여행지가 등록되었습니다!"); st.rerun()
         
-        st.divider()
-        st.subheader("🗺️ 등록된 여행지 목록")
-        if not df_dest.empty:
-            st.dataframe(df_dest[['name', 'start_date', 'end_date', 'status']], use_container_width=True)
+        st.divider(); st.subheader("🗺️ 등록된 여행지 목록")
+        if not df_dest.empty: st.dataframe(df_dest[['name', 'start_date', 'end_date', 'status']], use_container_width=True)
 
     if not df_dest.empty:
         sel_city = st.sidebar.selectbox("📍 여행지 선택", options=df_dest['name'].tolist())
@@ -479,8 +477,7 @@ elif menu == "✈️ 여행관리":
                         </div>
                     """, unsafe_allow_html=True)
                 st.markdown('</div>', unsafe_allow_html=True)
-            else:
-                st.info("등록된 일정이 없습니다. '비용 리스트' 탭에서 항목을 추가해 보세요.")
+            else: st.info("등록된 일정이 없습니다.")
 
         with t_stats:
             col1, col2 = st.columns(2)
