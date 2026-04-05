@@ -106,7 +106,7 @@ if menu == "💰 연금자산":
             else: df = pd.concat([df, pd.DataFrame([{"date": t_date, "account": p_acc, "amount": int(p_amt), "memo": ""}])], ignore_index=True)
             conn.update(spreadsheet=SHEET_URL, worksheet="Data", data=df); st.toast("저장 완료!"); st.rerun()
 
-# --- [2. 연금시뮬 - 가이드 섹션 완벽 복구] ---
+# --- [2. 연금시뮬] ---
 elif menu == "📈 연금시뮬":
     st.header("📈 은퇴 후 연금 마스터 시뮬레이터")
     df_p = load_data_safe("Data")
@@ -156,7 +156,6 @@ elif menu == "📈 연금시뮬":
             * **연 1,500만원 한도**: 사적연금 수령액이 넘으면 종합과세 대상. (퇴직금 원금은 이 한도에 포함 안 됨!)
             * **건보료**: 현재 사적연금은 건보료 산정 제외이나, 향후 개편 가능성 모니터링 필요.
             """)
-
     with tab3:
         st.subheader("💡 Byungjoo님을 위한 기획자 제언")
         st.info("""
@@ -300,9 +299,11 @@ elif menu == "✈️ 여행관리":
     st.header("✈️ Byungjoo 여행기록")
     df_dest, df_exp = load_travel_data()
     t_home, t_ledger, t_timeline, t_stats, t_edit = st.tabs(["🗺️ 여행지 관리", "💰 비용 리스트", "🗓️ 타임라인", "📊 지출 요약", "⚙️ 항목 수정/삭제"])
+    
     if not df_dest.empty:
         sel_city = st.sidebar.selectbox("📍 여행지 선택", options=df_dest['name'].tolist()); curr = df_dest[df_dest['name'] == sel_city].iloc[0]
         d_exp = df_exp[df_exp['dest_id'] == curr['id']].copy(); d_exp['amount'] = pd.to_numeric(d_exp['amount'], errors='coerce').fillna(0).astype(int)
+        
         with t_ledger:
             st.metric(f"'{sel_city}' 총 지출", f"₩{int(d_exp['amount'].sum()):,}")
             with st.expander(f"➕ 새 비용 등록", expanded=True):
@@ -311,23 +312,59 @@ elif menu == "✈️ 여행관리":
                     c3, c4 = st.columns(2); cat = c3.selectbox("카테고리", ["식비", "교통", "관광", "쇼핑", "숙박", "기타"]); pay = c3.selectbox("결제수단", ["트래블월렛", "하나카드", "삼성카드", "현금"])
                     unit = c4.selectbox("통화", ["KRW", "TWD", "USD", "EUR"]); amt = c4.number_input("금액", min_value=0, step=1)
                     if st.form_submit_button("저장") and it:
-                        rate = get_rate(unit); new_e = pd.DataFrame([{'dest_id': curr['id'], 'date': d, 'time': tm.strftime('%H:%M'), 'item': it, 'place': pl, 'category': cat, 'method': pay, 'amount': int(amt*rate), 'unit': 'KRW', 'memo': ''}])
+                        rate = get_rate(unit); new_e = pd.DataFrame([{'dest_id': curr['id'], 'date': str(d), 'time': tm.strftime('%H:%M'), 'item': it, 'place': pl, 'category': cat, 'method': pay, 'amount': int(amt*rate), 'unit': 'KRW', 'memo': ''}])
                         pd.concat([df_exp, new_e]).to_csv('travel_expenses.csv', index=False); st.rerun()
             for i, r in d_exp.sort_values(['date', 'time'], ascending=False).iterrows():
                 row_c1, row_c2 = st.columns([4, 1])
                 with row_c1: st.markdown(f"**{r['item']}** @ {r['place']}"); st.caption(f"{r['date']} {r['time']} | {r['method']}")
                 with row_c2: st.markdown(f"<p style='text-align:right; font-weight:bold; color:#0d6efd;'>₩{int(r['amount']):,}</p>", unsafe_allow_html=True)
                 st.divider()
+
+        with t_timeline:
+            st.subheader(f"🗓️ {sel_city} 여행 타임라인")
+            if not d_exp.empty:
+                # 데이터 정렬 및 시간 포맷 생성
+                tl_df = d_exp.copy()
+                tl_df['datetime'] = pd.to_datetime(tl_df['date'] + ' ' + tl_df['time'])
+                tl_df = tl_df.sort_values('datetime')
+                
+                # Plotly Timeline 생성 (Scatter 포맷으로 지점별 지출 표시)
+                fig = px.scatter(tl_df, 
+                                 x="datetime", 
+                                 y="category", 
+                                 size="amount", 
+                                 color="category",
+                                 hover_name="item", 
+                                 text="item",
+                                 title=f"{sel_city} 지출 타임라인 (원 크기 = 지출액)",
+                                 labels={"datetime": "일시", "category": "카테고리"})
+                
+                fig.update_traces(textposition='top center')
+                fig.update_layout(height=500, showlegend=False)
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # 상세 리스트형 타임라인
+                st.write("---")
+                for day in sorted(tl_df['date'].unique()):
+                    st.markdown(f"#### 📅 {day}")
+                    day_df = tl_df[tl_df['date'] == day]
+                    for _, row in day_df.iterrows():
+                        st.text(f"[{row['time']}] {row['item']} ({row['category']}) - ₩{int(row['amount']):,}")
+            else:
+                st.info("아직 등록된 지출 내역이 없습니다.")
+
         with t_stats:
             col1, col2 = st.columns(2)
             col1.write("**📅 일자별 지출**"); col1.write(d_exp.groupby('date')['amount'].sum().map(lambda x: f"₩{int(x):,}"))
             col1.write("**📁 카테고리별 지출**"); col1.write(d_exp.groupby('category')['amount'].sum().map(lambda x: f"₩{int(x):,}"))
             col2.write("**💳 결제수단별 지출**"); col2.write(d_exp.groupby('method')['amount'].sum().map(lambda x: f"₩{int(x):,}"))
+        
         with t_edit:
             if not d_exp.empty:
                 edit_list = d_exp.apply(lambda x: f"[{x['date']} {x['time']}] {x['item']}", axis=1).tolist(); sel_l = st.selectbox("항목 선택", options=edit_list); t_idx = d_exp.index[edit_list.index(sel_l)]; t_row = d_exp.loc[t_idx]
                 with st.form("edit_t"):
                     c1, c2 = st.columns(2); e_it = c1.text_input("항목", value=t_row['item']); e_pl = c1.text_input("장소", value=t_row['place']); e_amt = c1.number_input("금액", value=int(t_row['amount'])); e_date = c2.date_input("날짜", value=pd.to_datetime(t_row['date']).date()); e_time = c2.time_input("시간", value=datetime.datetime.strptime(str(t_row['time']), "%H:%M").time()); e_cat = c2.selectbox("카테고리", ["식비", "교통", "관광", "쇼핑", "숙박", "기타"], index=0); e_pay = c2.selectbox("결제수단", ["트래블월렛", "하나카드", "삼성카드", "현금"], index=0)
-                    if st.form_submit_button("수정 저장"):
+                    eb1, eb2 = st.columns(2)
+                    if eb1.form_submit_button("수정 저장"):
                         df_exp.at[t_idx, 'item'] = e_it; df_exp.at[t_idx, 'place'] = e_pl; df_exp.at[t_idx, 'amount'] = e_amt; df_exp.at[t_idx, 'date'] = str(e_date); df_exp.at[t_idx, 'time'] = e_time.strftime('%H:%M'); df_exp.at[t_idx, 'category'] = e_cat; df_exp.at[t_idx, 'method'] = e_pay; df_exp.to_csv('travel_expenses.csv', index=False); st.rerun()
-                    if st.form_submit_button("삭제"): df_exp.drop(t_idx).to_csv('travel_expenses.csv', index=False); st.rerun()
+                    if eb2.form_submit_button("삭제"): df_exp.drop(t_idx).to_csv('travel_expenses.csv', index=False); st.rerun()
