@@ -9,7 +9,7 @@ import requests
 import numpy as np
 
 # 1. 앱 설정
-st.set_page_config(page_title="은퇴 준비하기 v5.2.1", layout="wide")
+st.set_page_config(page_title="은퇴 준비하기 v5.2.2", layout="wide")
 
 # 2. 구글 시트 연결
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1LrVto7YUbodWwGsRBQ0PR7evNnEmDtf_gNEj8gM7ngA/edit#gid=0"
@@ -58,8 +58,7 @@ def get_rate(unit):
         res = requests.get(f"https://api.exchangerate-api.com/v4/latest/{unit}").json()
         return res['rates']['KRW']
     except:
-        backup = {"TWD": 47, "USD": 1490, "EUR": 1500}
-        return backup.get(unit, 1)
+        return {"TWD": 47, "USD": 1490, "EUR": 1500}.get(unit, 1)
 
 # --- [사이드바 메뉴] ---
 with st.sidebar:
@@ -178,7 +177,7 @@ elif menu == "💵 개인자산":
             else: df = pd.concat([df, pd.DataFrame([{"date": t_date, "account": p_acc_per, "amount": int(per_amt), "memo": ""}])], ignore_index=True)
             conn.update(spreadsheet=SHEET_URL, worksheet="PersonalData", data=df); st.toast("저장 완료!"); st.rerun()
 
-# --- [4. 영어공부 - 세션 오류 완벽 수정] ---
+# --- [4. 영어공부 - Syntax/Session 오류 수정 완료] ---
 elif menu == "🔤 영어공부":
     st.header("🔤 영어 공부")
     df_en = load_data_safe("Sheet1")
@@ -193,7 +192,7 @@ elif menu == "🔤 영어공부":
     
     with t2:
         st.subheader("✍️ 새 문장 추가")
-        # [수정] 텍스트 입력을 form으로 감싸서 제출 시 자동 리셋 유도
+        # [수정] SyntaxError를 방지하는 표준 form 구조 사용
         with st.form("english_input_form", clear_on_submit=True):
             new_en = st.text_input("영어 문장")
             new_ko = st.text_input("한글 뜻")
@@ -223,14 +222,14 @@ elif menu == "📚 도서관리":
     st.header("📚 도서 관리 시스템")
     df_books = load_book_data()
     
-    # [수정] 상단 메트릭 영역 복구 (불필요한 별점/분류 필드 삭제)
+    # [수정] 상단 메트릭만 깔끔하게 노출 (불필요한 별점/분류 필드 삭제)
     c1, c2, c3 = st.columns([1, 1, 2])
     sel_y = c1.selectbox("조회 연도", options=["2026년", "2027년", "2028년"])
     y_int = int(sel_y.replace("년", "")); y_df = df_books[df_books['연도'] == y_int]
     c2.metric(f"{y_int}년 독서량", f"{len(y_df)} 권")
     c3.metric(f"{y_int}년 도서 구입비", f"₩{int(y_df['가격'].sum()):,}")
     
-    st.divider() # 이미지와 다르게 의도치 않은 필드가 생기지 않도록 구분선 추가
+    st.divider()
     
     tab1, tab2, tab3 = st.tabs(["📖 서재 보기", "➕ 신규 등록", "✏️ 수정/삭제"])
     with tab1:
@@ -258,11 +257,12 @@ elif menu == "📚 도서관리":
                 if st.form_submit_button("수정"):
                     df_books.loc[df_books['제목'] == sel_b, ['제목', '별점']] = [new_t, new_r]; df_books.to_csv('books.csv', index=False); st.rerun()
 
-# --- [6. 여행관리] ---
+# --- [6. 여행관리 - SyntaxError 수정 완료] ---
 elif menu == "✈️ 여행관리":
     st.header("✈️ Byungjoo 여행기록")
     df_dest, df_exp = load_travel_data()
     t_home, t_ledger, t_timeline, t_stats, t_edit = st.tabs(["🗺️ 여행지 관리", "💰 비용 리스트", "🗓️ 타임라인", "📊 지출 요약", "⚙️ 항목 수정/삭제"])
+    
     with t_home:
         with st.expander("📍 신규 여행지 등록하기", expanded=False):
             with st.form("new_dest"):
@@ -270,9 +270,11 @@ elif menu == "✈️ 여행관리":
                 if st.form_submit_button("🌎 저장") and n:
                     new_id = int(df_dest['id'].max() + 1) if not df_dest.empty else 1
                     pd.concat([df_dest, pd.DataFrame([{'id': new_id, 'name': n, 'start_date': str(s), 'end_date': str(e), 'status': '준비중'}])]).to_csv('travel_dest.csv', index=False); st.rerun()
+    
     if not df_dest.empty:
         sel_city = st.sidebar.selectbox("📍 여행지 선택", options=df_dest['name'].tolist()); curr = df_dest[df_dest['name'] == sel_city].iloc[0]
         d_exp = df_exp[df_exp['dest_id'] == curr['id']].copy(); d_exp['amount'] = pd.to_numeric(d_exp['amount'], errors='coerce').fillna(0).astype(int)
+        
         with t_ledger:
             st.metric(f"'{sel_city}' 총 지출", f"₩{int(d_exp['amount'].sum()):,}")
             with st.expander(f"➕ 새 비용/일정 등록", expanded=True):
@@ -283,10 +285,17 @@ elif menu == "✈️ 여행관리":
                     if st.form_submit_button("저장") and it:
                         rate = get_rate(unit); new_e = pd.DataFrame([{'dest_id': curr['id'], 'date': d, 'time': tm.strftime('%H:%M'), 'item': it, 'place': pl, 'category': cat, 'method': pay, 'amount': int(amt*rate), 'unit': 'KRW', 'memo': ''}])
                         pd.concat([df_exp, new_e]).to_csv('travel_expenses.csv', index=False); st.rerun()
+            
+            # [오류 수정] 파이썬 문법에 맞게 with 문을 별도 줄로 분리
             for i, r in d_exp.sort_values(['date', 'time'], ascending=False).iterrows():
-                c1, c2 = st.columns([4, 1]); with c1: st.markdown(f"**{r['item']}** @ {r['place']}"); st.caption(f"{r['date']} {r['time']} | {r['method']}")
-                with c2: st.markdown(f"<p style='text-align:right; font-weight:bold; color:#0d6efd;'>₩{int(r['amount']):,}</p>", unsafe_allow_html=True)
+                row_c1, row_c2 = st.columns([4, 1])
+                with row_c1:
+                    st.markdown(f"**{r['item']}** @ {r['place']}")
+                    st.caption(f"{r['date']} {r['time']} | {r['method']}")
+                with row_c2:
+                    st.markdown(f"<p style='text-align:right; font-weight:bold; color:#0d6efd;'>₩{int(r['amount']):,}</p>", unsafe_allow_html=True)
                 st.divider()
+                
         with t_timeline:
             for _, r in d_exp.sort_values(['date', 'time'], ascending=True).iterrows():
                 st.markdown(f"""<div style="border-left: 2px solid #0d6efd; padding-left: 15px; position: relative; margin-bottom: 20px;"><div style="color: #0d6efd; font-weight: bold; font-size: 0.9em;">{r['date']} {r['time']}</div><div style="font-weight: bold;">{r['item']} @ {r['place']}</div><div style="font-size: 0.8em; color: gray;">₩{int(r['amount']):,} | {r['method']}</div></div>""", unsafe_allow_html=True)
