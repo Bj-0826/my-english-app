@@ -1,6 +1,6 @@
 streamlit
+streamlit-gsheets
 pandas
-yfinance
-openai
-gspread
-google-auth
+plotly
+requests
+numpy
