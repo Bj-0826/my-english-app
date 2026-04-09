@@ -8,29 +8,29 @@ import plotly.express as px
 import requests
 import numpy as np
 
-# 1. 앱 설정 (v5.4.7 업데이트: URL 중복 호출 방지 및 HTTP 400 해결 버전)
-st.set_page_config(page_title="은퇴 준비하기 v5.4.7", layout="wide")
+# 1. 앱 설정 (v5.4.9: GID 충돌 해결 및 로직 최적화)
+st.set_page_config(page_title="은퇴 준비하기 v5.4.9", layout="wide")
 
-# 2. 구글 시트 연결 (Secrets에 설정된 spreadsheet 주소를 자동으로 사용함)
+# 2. 구글 시트 연결
+# SHEET_URL에서 gid 부분을 제거한 기본 주소를 사용합니다.
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1LrVto7YUbodWwGsRBQ0PR7evNnEmDtf_gNEj8gM7ngA/edit"
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- [데이터 로드 함수 - 가장 안정적인 방식] ---
+# --- [데이터 로드 함수 - 탭 이름 기반 로드] ---
 def load_data_safe(s_name):
     try:
-        # spreadsheet URL을 직접 넣지 않고, Secrets의 설정을 통해 worksheet 이름만 호출합니다.
-        # 이렇게 해야 HTTP 400 오류를 원천 차단할 수 있습니다.
-        df = conn.read(worksheet=s_name, ttl=0)
+        # Secrets에 등록된 주소를 기반으로 worksheet(탭 이름)만 지정해서 읽어옵니다.
+        # 이렇게 해야 GID 충돌로 인한 HTTP 400 에러를 방지할 수 있습니다.
+        df = conn.read(spreadsheet=SHEET_URL, worksheet=s_name, ttl=0)
         
         if df is None or df.empty: return pd.DataFrame()
         
-        # 컬럼명 전처리
         df.columns = [str(c).strip().lower() for c in df.columns]
         df = df.dropna(how='all')
         
         if 'date' in df.columns: 
             df['date'] = df['date'].astype(str).str.strip().str.upper()
         
-        # 금액 데이터 숫자 변환
         if s_name.lower() in ["data", "personaldata", "cashflow"] and 'amount' in df.columns:
             df['amount'] = pd.to_numeric(df['amount'].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
             
@@ -42,7 +42,7 @@ def load_data_safe(s_name):
         st.error(f"❌ '{s_name}' 로드 실패: {e}")
         return pd.DataFrame()
 
-# [도서 및 여행 데이터 로컬 파일 관리 함수]
+# [load_book_data, load_travel_data, get_rate, reset_quiz 함수 동일 보존]
 def load_book_data():
     if os.path.exists('books.csv'):
         try:
