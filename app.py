@@ -9,17 +9,17 @@ import requests
 import numpy as np
 
 # 1. 앱 설정
-st.set_page_config(page_title="은퇴 준비하기 v5.5.4", layout="wide")
+st.set_page_config(page_title="은퇴 준비하기 v5.5.5", layout="wide")
 
-# 2. 구글 시트 연결 설정
-# Byungjoo님의 시트 Base URL을 명시적으로 정의합니다.
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1LrVto7YUbodWwGsRBQ0PR7evNnEmDtf_gNEj8gM7ngA"
+# 2. 구글 시트 연결 설정 (v5.5.5: 404 에러 대응 강화)
+# 문서 ID 끝에 /edit를 포함한 표준 경로를 명시합니다.
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1LrVto7YUbodWwGsRBQ0PR7evNnEmDtf_gNEj8gM7ngA/edit"
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- [데이터 로드 함수: 404 및 400 에러 방지 통합 버전] ---
+# --- [데이터 로드 함수] ---
 def load_data_safe(s_name):
     try:
-        # SHEET_URL(부모)과 worksheet(자식 탭)를 명확히 연결하여 호출합니다.
+        # 명시적인 spreadsheet 주소와 worksheet 이름을 사용하여 경로를 강제 지정합니다.
         df = conn.read(spreadsheet=SHEET_URL, worksheet=s_name, ttl=0)
         
         if df is None or df.empty: return pd.DataFrame()
@@ -38,10 +38,12 @@ def load_data_safe(s_name):
             
         return df
     except Exception as e:
-        st.warning(f"⚠️ '{s_name}' 탭 로드 실패: {e}")
+        # 404 에러가 발생하면 Secrets와 주소 일치 여부를 확인하도록 메시지 출력
+        st.warning(f"⚠️ '{s_name}' 로드 실패. 주소나 공유 권한을 확인해 주세요. (오류: {e})")
         return pd.DataFrame()
 
-# [기존 로컬 함수들]
+# [이하 Byungjoo님의 445줄 로직 (도서/여행/시뮬레이션) 100% 보존]
+
 def load_book_data():
     if os.path.exists('books.csv'):
         try:
