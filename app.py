@@ -8,37 +8,41 @@ import plotly.express as px
 import requests
 import numpy as np
 
-# 1. 앱 설정 (v5.4.4 업데이트: 데이터 로드 안정화)
-st.set_page_config(page_title="은퇴 준비하기 v5.4.4", layout="wide")
+# 1. 앱 설정 (v5.4.7 업데이트: URL 중복 호출 방지 및 HTTP 400 해결 버전)
+st.set_page_config(page_title="은퇴 준비하기 v5.4.7", layout="wide")
 
-# 2. 구글 시트 연결
-# 최신 라이브러리 규격에 맞춰 SHEET_URL을 직접 참조하지 않고 connection 개체를 생성합니다.
+# 2. 구글 시트 연결 (Secrets에 설정된 spreadsheet 주소를 자동으로 사용함)
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- [데이터 로드 함수 - 최신 규격으로 수정] ---
+# --- [데이터 로드 함수 - 가장 안정적인 방식] ---
 def load_data_safe(s_name):
     try:
-        # 최신 버전에서는 spreadsheet URL을 직접 넣는 것보다 Secrets의 설정을 따르는 것이 HTTP 400 방지에 유리합니다.
-        # worksheet 이름만 지정하여 데이터를 가져옵니다.
+        # spreadsheet URL을 직접 넣지 않고, Secrets의 설정을 통해 worksheet 이름만 호출합니다.
+        # 이렇게 해야 HTTP 400 오류를 원천 차단할 수 있습니다.
         df = conn.read(worksheet=s_name, ttl=0)
+        
         if df is None or df.empty: return pd.DataFrame()
         
+        # 컬럼명 전처리
         df.columns = [str(c).strip().lower() for c in df.columns]
         df = df.dropna(how='all')
         
         if 'date' in df.columns: 
             df['date'] = df['date'].astype(str).str.strip().str.upper()
         
-        if s_name in ["Data", "PersonalData", "CashFlow"] and 'amount' in df.columns:
+        # 금액 데이터 숫자 변환
+        if s_name.lower() in ["data", "personaldata", "cashflow"] and 'amount' in df.columns:
             df['amount'] = pd.to_numeric(df['amount'].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
             
-        if s_name == "Sheet1" and 'memorized' in df.columns:
+        if s_name.lower() == "sheet1" and 'memorized' in df.columns:
             df['memorized'] = df['memorized'].astype(str).str.upper().str.strip() == "TRUE"
+            
         return df
     except Exception as e:
         st.error(f"❌ '{s_name}' 로드 실패: {e}")
         return pd.DataFrame()
 
+# [도서 및 여행 데이터 로컬 파일 관리 함수]
 def load_book_data():
     if os.path.exists('books.csv'):
         try:
