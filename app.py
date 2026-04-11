@@ -185,7 +185,7 @@ elif menu == "📈 연금시뮬":
 elif menu == "💸 현금흐름":
     st.header("💸 현금흐름 관리 (은퇴 준비)")
     df_cf = load_data_safe("CashFlow"); df_bg = load_data_safe("Budgets")
-    CF_CATEGORIES = ["급여", "배당금", "고정지출", "변동지출", "자기계발", "저축/투자", "쇼핑", "외식", "생활비", "기기", "기타"]
+    CF_CATEGORIES = ["급여", "배당금", "고정지출", "변동지출", "자기계발", "저축/투자", "쇼핑", "외식", "생활비", "기타"]
     c_f1, c_f2 = st.columns(2)
     sel_y = c_f1.selectbox("조회 연도", [2025, 2026, 2027, 2028], index=1)
     sel_m = c_f2.selectbox("조회 월", [f"{i:02d}" for i in range(1, 13)], index=datetime.date.today().month-1)
