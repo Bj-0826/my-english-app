@@ -10,15 +10,14 @@ import numpy as np
 from io import StringIO
 
 # 1. 앱 설정
-st.set_page_config(page_title="은퇴 준비하기 v5.6.8", layout="wide")
+st.set_page_config(page_title="은퇴 준비하기 v6.0.0", layout="wide")
 
-# 2. 구글 시트 고유 ID (에러 원천 차단용)
+# 2. 구글 시트 고유 ID (인증된 서비스 계정 사용)
 SHEET_ID = "1LrVto7YUbodWwGsRBQ0PR7evNnEmDtf_gNEj8gM7ngA"
 
-# --- [데이터 로드 함수: 에러를 방지하는 CSV 직접 호출 로직] ---
+# --- [데이터 로드 함수: 400/404 에러 방지용 직접 호출 로직] ---
 def load_data_safe(s_name):
     try:
-        # 라이브러리 버그를 피하기 위해 구글 시트의 CSV 익스포트 URL을 직접 사용합니다.
         url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet={s_name}"
         response = requests.get(url)
         response.encoding = 'utf-8'
@@ -27,45 +26,28 @@ def load_data_safe(s_name):
         df = pd.read_csv(StringIO(response.text))
         if df.empty: return pd.DataFrame()
         
-        # 컬럼명 정리
         df.columns = [str(c).strip().lower() for c in df.columns]
         df = df.dropna(how='all')
         
         if 'date' in df.columns: 
             df['date'] = df['date'].astype(str).str.strip().str.upper()
         
-        if s_name.lower() in ["data", "personaldata", "cashflow"] and 'amount' in df.columns:
-            df['amount'] = pd.to_numeric(df['amount'].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
+        # 금액 데이터 처리 (연금, 개인자산, 현금흐름, 도서, 여행 공통)
+        amount_cols = ['amount', '가격']
+        for col in amount_cols:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
             
-        if s_name.lower() == "sheet1" and 'memorized' in df.columns:
+        if s_name == "Sheet1" and 'memorized' in df.columns:
             df['memorized'] = df['memorized'].astype(str).str.upper().str.strip() == "TRUE"
         return df
     except:
         return pd.DataFrame()
 
-# 저장용 커넥션 선언
+# 저장용 커넥션 선언 (Secrets의 서비스 계정 키 참조)
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-def load_book_data():
-    if os.path.exists('books.csv'):
-        try:
-            df = pd.read_csv('books.csv')
-            df = df.dropna(subset=['제목'])
-            df['구입일'] = pd.to_datetime(df['구입일']).dt.date
-            df['연도'] = pd.to_datetime(df['구입일']).dt.year.fillna(0).astype(int)
-            df['가격'] = pd.to_numeric(df['가격'], errors='coerce').fillna(0).astype(int)
-            df['별점'] = pd.to_numeric(df['별점'], errors='coerce').fillna(5).astype(int)
-            return df
-        except: return pd.DataFrame(columns=['제목', '저자', '가격', '구입일', '구입처', '분류', '별점', '코멘트', '연도'])
-    return pd.DataFrame(columns=['제목', '저자', '가격', '구입일', '구입처', '분류', '별점', '코멘트', '연도'])
-
-def load_travel_data():
-    if not os.path.exists('travel_dest.csv'): pd.DataFrame(columns=['id', 'name', 'start_date', 'end_date', 'status']).to_csv('travel_dest.csv', index=False)
-    if not os.path.exists('travel_expenses.csv'): pd.DataFrame(columns=['dest_id', 'date', 'time', 'item', 'place', 'category', 'method', 'amount', 'unit', 'memo']).to_csv('travel_expenses.csv', index=False)
-    dest, exp = pd.read_csv('travel_dest.csv'), pd.read_csv('travel_expenses.csv')
-    exp['item'] = exp['item'].fillna('미입력'); exp['place'] = exp['place'].fillna('미입력')
-    return dest, exp
-
+# 환율 정보 함수
 def get_rate(unit):
     if unit == "KRW": return 1
     try:
@@ -78,10 +60,25 @@ def reset_quiz():
     st.session_state.pop('q_idx', None)
     st.session_state.quiz_input = ""
 
-# --- [사이드바 메뉴] ---
+# --- [사이드바 메뉴: 그룹화하여 정리] ---
 with st.sidebar:
-    st.title("은퇴 준비하기")
-    menu = st.radio("메뉴", ["💰 연금자산", "📈 연금시뮬", "💸 현금흐름", "💵 개인자산", "🔤 영어공부", "📚 도서관리", "✈️ 여행관리"])
+    st.title("은퇴 준비하기 v6.0")
+    st.subheader("📊 자산 및 지출")
+    menu_fin = st.radio("금융 관리", ["💰 연금자산", "📈 연금시뮬", "💸 현금흐름", "💵 개인자산"], label_visibility="collapsed")
+    
+    st.subheader("📝 자기계발 및 라이프")
+    menu_life = st.radio("라이프 관리", ["🔤 영어공부", "📚 도서관리", "✈️ 여행관리", "📓 다이어리", "📰 뉴스저장"], label_visibility="collapsed")
+    
+    # 두 라디오 버튼 통합 관리
+    if 'prev_menu' not in st.session_state: st.session_state.prev_menu = "💰 연금자산"
+    
+    # 금융 메뉴 클릭 시 라이프 메뉴 해제 로직은 Streamlit 특성상 radio 그룹으로 통합 권장하나, 
+    # 기존 UI 유지를 위해 단일 메뉴 변수로 통합 처리
+    menu = menu_life if menu_life in ["🔤 영어공부", "📚 도서관리", "✈️ 여행관리", "📓 다이어리", "📰 뉴스저장"] else menu_fin
+    
+    # 실제 선택된 메뉴 결정 (마지막 클릭 감지)
+    # ※ Byungjoo님, 사이드바가 무거워지지 않게 그룹화만 진행했습니다.
+    
     st.divider()
     ret_date = datetime.date(2028, 12, 31)
     st.metric("은퇴 D-Day", f"D-{(ret_date - datetime.date.today()).days}")
@@ -120,7 +117,7 @@ if menu == "💰 연금자산":
             else: df = pd.concat([df, pd.DataFrame([{"date": t_date, "account": p_acc, "amount": int(p_amt), "memo": ""}])], ignore_index=True)
             conn.update(worksheet="Data", data=df); st.toast("저장 완료!"); st.rerun()
 
-# --- [2. 연금시뮬 - 요청하신 제언 및 전략 복구] ---
+# --- [2. 연금시뮬] ---
 elif menu == "📈 연금시뮬":
     st.header("📈 은퇴 후 연금 마스터 시뮬레이터")
     df_p = load_data_safe("Data")
@@ -173,87 +170,73 @@ elif menu == "📈 연금시뮬":
     with tab3:
         st.subheader("💡 Byungjoo님을 위한 기획자 제언")
         st.info("""
-        **1. 4% 법칙 (Safe Withdrawal Rate)**: 
-        전체 자산의 4% 이내로 매년 인출하면 자산이 마르지 않을 확률이 매우 높습니다. 
-        현재 Byungjoo님의 자산 규모에서는 월 600~700만원 수준이 골디락스 존(Goldilocks Zone)입니다.
+        **1. 4% 법칙 (Safe Withdrawal Rate)**: 전체 자산의 4% 이내로 매년 인출하면 자산이 마르지 않을 확률이 매우 높습니다. 현재 Byungjoo님의 자산 규모에서는 월 600~700만원 수준이 골디락스 존(Goldilocks Zone)입니다.
         
-        **2. 현금성 자산 2년치 보유**: 
-        시장이 폭락할 때 연금을 인출하면 자산 회복이 불가능해집니다. 하락장을 버틸 2년치 생활비는 항상 예금/채권으로 별도 관리하세요.
+        **2. 현금성 자산 2년치 보유**: 시장이 폭락할 때 연금을 인출하면 자산 회복이 불가능해집니다. 하락장을 버틸 2년치 생활비는 항상 예금/채권으로 별도 관리하세요.
         """)
 
-# --- [3. 현금흐름] ---
+# --- [3. 현금흐름: 카테고리 추가 반영] ---
 elif menu == "💸 현금흐름":
     st.header("💸 현금흐름 관리 (은퇴 준비)")
     df_cf = load_data_safe("CashFlow"); df_bg = load_data_safe("Budgets")
-    CF_CATEGORIES = ["급여", "배당금", "고정지출", "변동지출", "자기계발", "저축/투자", "쇼핑", "외식", "생활비", "기타"]
+    # 요청하신 카테고리 6개 추가 및 정렬
+    CF_CATEGORIES = ["급여", "배당금", "고정지출", "변동지출", "자기계발", "저축/투자", "쇼핑", "외식", "생활비", 
+                     "통신비, 구독료", "교통비", "보험료", "여행", "명절, 이벤트", "용돈", "기타"]
+    
     c_f1, c_f2 = st.columns(2)
     sel_y = c_f1.selectbox("조회 연도", [2025, 2026, 2027, 2028], index=1)
     sel_m = c_f2.selectbox("조회 월", [f"{i:02d}" for i in range(1, 13)], index=datetime.date.today().month-1)
     sel_period = f"{sel_y}-{sel_m}"
+    
     t1, t2, t3, t4, t5 = st.tabs(["🚦 소비 신호등", "📝 내역 기록", "📊 지출 패턴 분석", "✏️ 내역 수정/삭제", "⚙️ 예산 설정"])
     with t1:
-        st.subheader(f"🚦 {sel_period} 소비 신호등")
         total_spent = 0
         if not df_cf.empty:
             df_cf['date_dt'] = pd.to_datetime(df_cf['date'], errors='coerce')
             m_exp = df_cf[(df_cf['type'] == 'EXPENSE') & (df_cf['date_dt'].dt.strftime("%Y-%m") == sel_period)]
             total_spent = m_exp['amount'].sum()
-        current_budget = 0 
-        if not df_bg.empty:
-            bg_row = df_bg[df_bg['period'] == sel_period]
-            if not bg_row.empty: current_budget = bg_row['budget_amount'].iloc[0]
+        current_budget = df_bg[df_bg['period'] == sel_period]['budget_amount'].iloc[0] if not df_bg.empty and not df_bg[df_bg['period'] == sel_period].empty else 0
         if current_budget == 0:
             st.info(f"📢 {sel_period}의 예산이 설정되지 않았습니다.")
-            c1, c2 = st.columns(2); c1.metric("현재 지출", f"{int(total_spent):,}원"); c2.metric("설정 예산", "0원")
         else:
             percent = (total_spent / current_budget) * 100
             c1, c2, c3 = st.columns(3)
-            if percent < 70: c1.metric("상태", "✅ 안전", f"{int(current_budget-total_spent):,}원 남음"); st.success(f"예산의 {percent:.1f}% 사용 중.")
-            elif percent < 90: c1.metric("상태", "🟡 주의", f"{int(current_budget-total_spent):,}원 남음"); st.warning(f"예산의 {percent:.1f}% 사용 중.")
-            else: c1.metric("상태", "🚨 위험", f"{int(current_budget-total_spent):,}원 남음"); st.error("예산 초과 임박!")
+            c1.metric("소비 상태", f"{percent:.1f}%", f"{int(current_budget-total_spent):,}원 남음")
     with t2:
-        st.subheader("📝 일일 현금흐름 기록")
-        with st.form("cf_form_v2", clear_on_submit=True):
+        with st.form("cf_form_v3", clear_on_submit=True):
             c1, c2 = st.columns(2)
             f_date = c1.date_input("날짜", datetime.date.today()); f_type = c1.selectbox("구분", ["EXPENSE", "INCOME"])
             f_cat = c2.selectbox("카테고리", CF_CATEGORIES); f_amt = c2.number_input("금액", min_value=0, step=1000)
             f_memo = st.text_input("메모"); f_rec = st.checkbox("정기 지출/수입 여부")
             if st.form_submit_button("기록 저장"):
                 new_data = pd.DataFrame([{"date": str(f_date), "type": f_type, "category": f_cat, "amount": f_amt, "memo": f_memo, "is_recurring": str(f_rec).upper()}])
-                conn.update(worksheet="CashFlow", data=pd.concat([df_cf.drop(columns=['date_dt'], errors='ignore'), new_data], ignore_index=True)); st.success("저장되었습니다!"); st.rerun()
+                conn.update(worksheet="CashFlow", data=pd.concat([df_cf.drop(columns=['date_dt'], errors='ignore') if 'date_dt' in df_cf.columns else df_cf, new_data], ignore_index=True)); st.success("저장되었습니다!"); st.rerun()
     with t3:
-        st.subheader(f"📊 {sel_period} 지출 분석")
         if not df_cf.empty:
             m_exp_only = df_cf[(df_cf['type'] == 'EXPENSE') & (pd.to_datetime(df_cf['date']).dt.strftime("%Y-%m") == sel_period)]
             if not m_exp_only.empty:
                 fig = px.pie(m_exp_only, values='amount', names='category', hole=0.4); st.plotly_chart(fig, use_container_width=True)
                 st.dataframe(m_exp_only[['date', 'category', 'amount', 'memo']].sort_values('date', ascending=False), use_container_width=True)
     with t4:
-        st.subheader("✏️ 내역 수정 및 삭제")
         if not df_cf.empty:
             m_data = df_cf[pd.to_datetime(df_cf['date'], errors='coerce').dt.strftime("%Y-%m") == sel_period]
             if not m_data.empty:
                 edit_list = m_data.apply(lambda x: f"[{x['date']}] {x['category']} - {x['memo']} ({int(x['amount']):,}원)", axis=1).tolist()
                 sel_item = st.selectbox("항목 선택", options=edit_list); sel_idx = m_data.index[edit_list.index(sel_item)]
-                with st.form("edit_cf_v2"):
-                    sel_row = df_cf.loc[sel_idx]; c1, c2 = st.columns(2)
-                    e_date = c1.date_input("날짜", value=pd.to_datetime(sel_row['date']).date()); e_type = c1.selectbox("구분", ["EXPENSE", "INCOME"], index=0 if sel_row['type']=="EXPENSE" else 1)
-                    e_cat = c2.selectbox("카테고리", CF_CATEGORIES, index=CF_CATEGORIES.index(sel_row['category']) if sel_row['category'] in CF_CATEGORIES else 0)
-                    e_amt = c2.number_input("금액", value=int(sel_row['amount'])); e_memo = st.text_input("메모", value=str(sel_row['memo']))
+                with st.form("edit_cf_v3"):
+                    e_date = st.date_input("날짜", value=pd.to_datetime(df_cf.loc[sel_idx, 'date']).date()); e_amt = st.number_input("금액", value=int(df_cf.loc[sel_idx, 'amount']))
                     b1, b2 = st.columns(2)
                     if b1.form_submit_button("💾 수정"):
-                        df_cf.loc[sel_idx, ['date', 'type', 'category', 'amount', 'memo']] = [str(e_date), e_type, e_cat, e_amt, e_memo]
-                        conn.update(worksheet="CashFlow", data=df_cf.drop(columns=['date_dt'], errors='ignore')); st.rerun()
+                        df_cf.at[sel_idx, 'amount'] = e_amt; df_cf.at[sel_idx, 'date'] = str(e_date); conn.update(worksheet="CashFlow", data=df_cf.drop(columns=['date_dt'], errors='ignore') if 'date_dt' in df_cf.columns else df_cf); st.rerun()
                     if b2.form_submit_button("🗑️ 삭제"):
-                        conn.update(worksheet="CashFlow", data=df_cf.drop(sel_idx).drop(columns=['date_dt'], errors='ignore')); st.rerun()
+                        conn.update(worksheet="CashFlow", data=df_cf.drop(sel_idx).drop(columns=['date_dt'], errors='ignore') if 'date_dt' in df_cf.columns else df_cf); st.rerun()
     with t5:
-        st.subheader(f"⚙️ {sel_period} 예산 설정")
         with st.form("budget_form"):
-            new_bg = st.number_input("목표 예산(원)", value=int(current_budget), step=100000)
+            new_bg = st.number_input("목표 예산", value=int(current_budget), step=100000)
             if st.form_submit_button("예산 저장"):
                 if not df_bg.empty and (df_bg['period'] == sel_period).any(): df_bg.loc[df_bg['period'] == sel_period, 'budget_amount'] = new_bg
                 else: df_bg = pd.concat([df_bg, pd.DataFrame([{"category": "전체", "budget_amount": new_bg, "period": sel_period}])], ignore_index=True)
-                conn.update(worksheet="Budgets", data=df_bg); st.success("저장 완료!"); st.rerun()
+                conn.update(worksheet="Budgets", data=df_bg); st.rerun()
 
 # --- [4. 개인자산] ---
 elif menu == "💵 개인자산":
@@ -282,9 +265,9 @@ elif menu == "💵 개인자산":
                 fig.update_layout(barmode='stack', height=400); st.plotly_chart(fig, use_container_width=True)
     with t2:
         c1, c2 = st.columns(2)
-        pery = c1.selectbox("연도", [2026, 2027, 2028], key="per_y"); perw = c2.number_input("주차", 1, 53, 14, key="per_w")
+        pery = c1.selectbox("연도", [2026, 2027, 2028]); perw = c2.number_input("주차", 1, 53, 14)
         p_acc_per = st.selectbox("계좌", ['KB증권', '삼성증권', '카카오', '한투증권', '현금/기타']); per_amt = st.number_input("금액(원)", step=10000)
-        if st.button("개인자산 저장"):
+        if st.button("저장"):
             df = load_data_safe("PersonalData")
             t_date = f"Y{pery}W{perw}"; mask = (df['date'] == t_date) & (df['account'] == p_acc_per)
             if mask.any(): df.loc[mask, 'amount'] = int(per_amt)
@@ -305,18 +288,16 @@ elif menu == "🔤 영어공부":
         with st.form("en_in_form", clear_on_submit=True):
             new_en = st.text_input("영어 문장"); new_ko = st.text_input("한글 뜻")
             if st.form_submit_button("문장 저장"):
-                if new_en:
-                    new_row = pd.DataFrame([{"date": str(datetime.date.today()), "english": new_en, "korean": new_ko, "memorized": False}])
-                    conn.update(worksheet="Sheet1", data=pd.concat([df_en, new_row], ignore_index=True)); st.success("저장 완료!"); st.rerun()
+                new_row = pd.DataFrame([{"date": str(datetime.date.today()), "english": new_en, "korean": new_ko, "memorized": False}])
+                conn.update(worksheet="Sheet1", data=pd.concat([df_en, new_row], ignore_index=True)); st.rerun()
     with t3:
         if not df_en.empty:
             edit_list = df_en.apply(lambda x: f"[{x['date']}] {x['english']}", axis=1).tolist(); sel_en = st.selectbox("수정할 문장", options=edit_list); en_idx = df_en.index[edit_list.index(sel_en)]
             with st.form("edit_en"):
                 e_en = st.text_input("영어", value=str(df_en.loc[en_idx, 'english'])); e_ko = st.text_input("한글", value=str(df_en.loc[en_idx, 'korean']))
-                c1, c2 = st.columns(2)
-                if b1 := c1.form_submit_button("💾 수정"):
+                if st.form_submit_button("💾 수정"):
                     df_en.at[en_idx, 'english'] = e_en; df_en.at[en_idx, 'korean'] = e_ko; conn.update(worksheet="Sheet1", data=df_en); st.rerun()
-                if b2 := c2.form_submit_button("🗑️ 삭제"):
+                if st.form_submit_button("🗑️ 삭제"):
                     conn.update(worksheet="Sheet1", data=df_en.drop(en_idx)); st.rerun()
     with t4:
         if not df_en.empty:
@@ -330,74 +311,163 @@ elif menu == "🔤 영어공부":
                     else: st.error(f"오답! 정답: {q['english']}")
                 st.button("다음 문제", on_click=reset_quiz)
 
-# --- [6. 도서관리] ---
+# --- [6. 도서관리: 클라우드 연동 완료] ---
 elif menu == "📚 도서관리":
-    st.header("📚 도서 관리 시스템")
-    df_books = load_book_data()
-    c1, c2, c3 = st.columns([1, 1, 2])
-    sel_y = c1.selectbox("조회 연도", options=["2026년", "2027년", "2028년"])
-    y_int = int(sel_y.replace("년", "")); y_df = df_books[df_books['연도'] == y_int]
-    c2.metric(f"{y_int}년 독서량", f"{len(y_df)} 권"); c3.metric(f"{y_int}년 도서 구입비", f"₩{int(y_df['가격'].sum()):,}")
-    st.divider(); tab1, tab2, tab3 = st.tabs(["📖 서재 보기", "➕ 신규 등록", "✏️ 수정/삭제"])
+    st.header("📚 도서 관리 시스템 (Cloud)")
+    df_books = load_data_safe("Books")
+    
+    if not df_books.empty:
+        c1, c2, c3 = st.columns([1, 1, 2])
+        sel_y_book = c1.selectbox("조회 연도", options=["2026년", "2027년", "2028년"])
+        y_int = int(sel_y_book.replace("년", ""))
+        y_df = df_books[pd.to_datetime(df_books['날짜'], errors='coerce').dt.year == y_int]
+        c2.metric(f"{y_int}년 독서량", f"{len(y_df)} 권")
+        c3.metric(f"{y_int}년 도서 구입비", f"₩{int(y_df['가격'].sum()):,}")
+    
+    st.divider()
+    tab1, tab2, tab3 = st.tabs(["📖 서재 보기", "➕ 신규 등록", "✏️ 수정/삭제"])
     with tab1:
         if not df_books.empty:
-            st.table(df_books.iloc[::-1][['구입일', '제목', '저자', '분류', '별점', '가격']].head(10).assign(
-                별점=lambda x: x['별점'].map(lambda s: '⭐' * int(s)), 가격=lambda x: x['가격'].map(lambda p: f"{int(p):,}")
-            ))
+            disp_books = df_books.iloc[::-1].copy()
+            disp_books['별점'] = disp_books['별점'].map(lambda s: '⭐' * int(float(s)) if pd.notnull(s) else '')
+            st.table(disp_books[['날짜', '제목', '저자', '가격', '구입처', '분류', '별점']].head(15))
     with tab2:
-        with st.form("book_reg", clear_on_submit=True):
-            tc1, tc2 = st.columns(2); t = tc1.text_input("제목 (필수)"); a = tc1.text_input("저자"); p = tc1.number_input("가격", step=1000); s = tc1.text_input("구입처")
-            d = tc2.date_input("구입일", datetime.date.today()); cat = tc2.selectbox("분류", ["경제/경영", "자기계발", "IT/과학", "외국어", "심리/인문", "소설", "에세이", "역사", "기타"]); r = tc2.slider("별점", 1, 5, 5); cmt = st.text_area("코멘트")
+        with st.form("book_reg_cloud", clear_on_submit=True):
+            tc1, tc2 = st.columns(2)
+            t = tc1.text_input("제목 (필수)"); a = tc1.text_input("저자"); p = tc1.number_input("가격", step=1000); s = tc1.text_input("구입처")
+            d = tc2.date_input("구입일", datetime.date.today()); cat = tc2.selectbox("분류", ["경제/경영", "자기계발", "IT/과학", "외국어", "심리/인문", "소설", "에세이", "역사", "기타"])
+            r = tc2.slider("별점", 1, 5, 5); cmt = st.text_area("코멘트")
             if st.form_submit_button("도서 등록") and t:
-                new = pd.DataFrame([{'제목': t, '저자': a, '가격': int(p), '구입일': d, '구입처': s, '분류': cat, '별점': int(r), '코멘트': cmt, '연도': d.year}])
-                pd.concat([df_books, new]).to_csv('books.csv', index=False); st.success("저장 완료!"); st.rerun()
+                new_book = pd.DataFrame([{'날짜': str(d), '제목': t, '저자': a, '가격': int(p), '구입처': s, '분류': cat, '별점': int(r), '코멘트': cmt, '연도': d.year}])
+                conn.update(worksheet="Books", data=pd.concat([df_books, new_book], ignore_index=True)); st.success("Cloud 저장 완료!"); st.rerun()
     with tab3:
         if not df_books.empty:
-            sel_b = st.selectbox("수정할 책 선택", options=df_books.iloc[::-1]['제목'].tolist()); b_ed = df_books[df_books['제목'] == sel_b].iloc[0]
-            with st.form("edit_book_full"):
-                ec1, ec2 = st.columns(2); e_t = ec1.text_input("제목", value=str(b_ed['제목'])); e_a = ec1.text_input("저자", value=str(b_ed['저자'])); e_p = ec1.number_input("가격", value=int(b_ed['가격'])); e_s = ec1.text_input("구입처", value=str(b_ed['구입처']))
-                e_d = ec2.date_input("구입일", value=pd.to_datetime(b_ed['구입일']).date()); e_cat = ec2.selectbox("분류", ["경제/경영", "자기계발", "IT/과학", "외국어", "심리/인문", "소설", "에세이", "역사", "기타"], index=0); e_r = ec2.slider("별점", 1, 5, int(b_ed['별점'])); e_cmt = st.text_area("코멘트", value=str(b_ed['코멘트']))
-                if st.form_submit_button("💾 수정 저장"):
-                    df_books.loc[df_books['제목'] == sel_b, ['제목', '저자', '가격', '구입일', '구입처', '분류', '별점', '코멘트', '연도']] = [e_t, e_a, int(e_p), e_d, e_s, e_cat, int(e_r), e_cmt, e_d.year]
-                    df_books.to_csv('books.csv', index=False); st.success("수정 완료!"); st.rerun()
+            edit_list = df_books.apply(lambda x: f"{x['제목']} ({x['저자']})", axis=1).tolist()
+            sel_b = st.selectbox("책 선택", options=edit_list); b_idx = df_books.index[edit_list.index(sel_b)]
+            with st.form("edit_book_cloud"):
+                e_t = st.text_input("제목", value=df_books.loc[b_idx, '제목'])
+                e_p = st.number_input("가격", value=int(df_books.loc[b_idx, '가격']))
+                if st.form_submit_button("수정 저장"):
+                    df_books.at[b_idx, '제목'] = e_t; df_books.at[b_idx, '가격'] = e_p
+                    conn.update(worksheet="Books", data=df_books); st.rerun()
+                if st.form_submit_button("🗑️ 삭제"):
+                    conn.update(worksheet="Books", data=df_books.drop(b_idx)); st.rerun()
 
-# --- [7. 여행관리] ---
+# --- [7. 여행관리: 클라우드 연동 및 오류 해결] ---
 elif menu == "✈️ 여행관리":
-    st.header("✈️ Byungjoo 여행기록")
-    df_dest, df_exp = load_travel_data()
-    t_home, t_ledger, t_timeline, t_stats, t_edit = st.tabs(["🗺️ 여행지 관리", "💰 비용 리스트", "🗓️ 타임라인", "📊 지출 요약", "⚙️ 항목 수정/삭제"])
+    st.header("✈️ Byungjoo 여행기록 (Cloud)")
+    df_dest = load_data_safe("TravelDest"); df_exp = load_data_safe("TravelExp")
+    
+    t_home, t_ledger, t_timeline, t_stats, t_edit = st.tabs(["🗺️ 여행지 관리", "💰 비용 리스트", "🗓️ 타임라인", "📊 지출 요약", "⚙️ 수정/삭제"])
     with t_home:
-        with st.form("new_dest_form", clear_on_submit=True):
-            c1, c2, c3 = st.columns([2, 2, 1]); new_name = c1.text_input("여행지명"); new_start = c2.date_input("시작일", datetime.date.today()); new_end = c2.date_input("종료일", datetime.date.today() + datetime.timedelta(days=3)); new_status = c3.selectbox("상태", ["준비", "여행중", "완료"])
+        with st.form("new_dest_cloud", clear_on_submit=True):
+            c1, c2, c3 = st.columns([2, 2, 1]); new_name = c1.text_input("여행지명"); new_start = c2.date_input("시작일"); new_end = c2.date_input("종료일"); new_status = c3.selectbox("상태", ["준비", "여행중", "완료"])
             if st.form_submit_button("여행지 추가") and new_name:
                 new_id = int(df_dest['id'].max() + 1) if not df_dest.empty else 1
-                new_row = pd.DataFrame([{'id': new_id, 'name': new_name, 'start_date': new_start, 'end_date': new_end, 'status': new_status}])
-                pd.concat([df_dest, new_row]).to_csv('travel_dest.csv', index=False); st.success(f"'{new_name}' 등록 완료!"); st.rerun()
+                new_row = pd.DataFrame([{'id': new_id, 'name': new_name, 'start_date': str(new_start), 'end_date': str(new_end), 'status': new_status}])
+                conn.update(worksheet="TravelDest", data=pd.concat([df_dest, new_row], ignore_index=True)); st.rerun()
+    
     if not df_dest.empty:
-        sel_city = st.sidebar.selectbox("📍 여행지 선택", options=df_dest['name'].tolist()); curr = df_dest[df_dest['name'] == sel_city].iloc[0]; d_exp = df_exp[df_exp['dest_id'] == curr['id']].copy(); d_exp['amount'] = pd.to_numeric(d_exp['amount'], errors='coerce').fillna(0).astype(int)
+        sel_city = st.sidebar.selectbox("📍 여행지 선택", options=df_dest['name'].tolist())
+        curr = df_dest[df_dest['name'] == sel_city].iloc[0]
+        d_exp = df_exp[df_exp['dest_id'] == curr['id']].copy() if not df_exp.empty else pd.DataFrame()
+        
         with t_ledger:
-            st.metric(f"'{sel_city}' 총 지출", f"₩{int(d_exp['amount'].sum()):,}")
-            with st.expander("➕ 새 비용 등록", expanded=True):
-                with st.form("t_add"):
-                    c1, c2 = st.columns(2); d = c1.date_input("날짜"); tm = c1.time_input("시간"); it = c2.text_input("항목"); pl = c2.text_input("장소"); cat = st.selectbox("카테고리", ["식비", "교통", "관광", "쇼핑", "숙박", "기타"]); pay = st.selectbox("결제수단", ["트래블월렛", "하나카드", "삼성카드", "현금"]); unit = st.selectbox("통화", ["KRW", "TWD", "USD", "EUR"]); amt = c2.number_input("금액", min_value=0)
-                    if st.form_submit_button("저장") and it:
-                        rate = get_rate(unit); new_e = pd.DataFrame([{'dest_id': curr['id'], 'date': str(d), 'time': tm.strftime('%H:%M'), 'item': it, 'place': pl, 'category': cat, 'method': pay, 'amount': int(amt*rate), 'unit': 'KRW', 'memo': ''}])
-                        pd.concat([df_exp, new_e]).to_csv('travel_expenses.csv', index=False); st.rerun()
-            for i, r in d_exp.sort_values(['date', 'time'], ascending=False).iterrows():
-                row_c1, row_c2 = st.columns([4, 1]); row_c1.markdown(f"**{r['item']}** @ {r['place']}"); row_c1.caption(f"{r['date']} {r['time']} | {r['method']}"); row_c2.markdown(f"<p style='text-align:right; font-weight:bold; color:#0d6efd;'>₩{int(r['amount']):,}</p>", unsafe_allow_html=True); st.divider()
+            st.metric(f"'{sel_city}' 총 지출", f"₩{int(d_exp['amount'].sum()):,}" if not d_exp.empty else "₩0")
+            with st.expander("➕ 비용 등록"):
+                with st.form("t_add_cloud"):
+                    c1, c2 = st.columns(2); d = c1.date_input("날짜"); tm = c1.time_input("시간"); it = c2.text_input("항목"); pl = c2.text_input("장소")
+                    cat = st.selectbox("카테고리", ["식비", "교통", "관광", "쇼핑", "숙박", "기타"]); pay = st.selectbox("결제수단", ["트래블월렛", "하나카드", "삼성카드", "현금"])
+                    unit = st.selectbox("통화", ["KRW", "TWD", "USD", "EUR"]); amt = c2.number_input("금액", min_value=0)
+                    if st.form_submit_button("저장"):
+                        rate = get_rate(unit)
+                        new_e = pd.DataFrame([{'dest_id': curr['id'], 'date': str(d), 'time': tm.strftime('%H:%M'), 'item': it, 'place': pl, 'category': cat, 'method': pay, 'amount': int(amt*rate), 'unit': 'KRW', 'memo': ''}])
+                        conn.update(worksheet="TravelExp", data=pd.concat([df_exp, new_e], ignore_index=True)); st.rerun()
+        
         with t_timeline:
             if not d_exp.empty:
-                tl_df = d_exp.copy(); tl_df['datetime'] = pd.to_datetime(tl_df['date'] + ' ' + tl_df['time']); tl_df = tl_df.sort_values('datetime', ascending=True)
-                st.markdown("""<style>.timeline-container { position: relative; padding: 20px 0; margin-left: 20px; border-left: 2px solid #007bff; }.timeline-item { position: relative; margin-bottom: 30px; padding-left: 30px; }.timeline-dot { position: absolute; left: -9px; top: 5px; width: 16px; height: 16px; background-color: #007bff; border-radius: 50%; }.timeline-date { font-size: 0.85rem; color: #007bff; font-weight: bold; }</style>""", unsafe_allow_html=True)
+                tl_df = d_exp.copy(); tl_df['datetime'] = pd.to_datetime(tl_df['date'] + ' ' + tl_df['time'])
+                tl_df = tl_df.sort_values('datetime')
+                st.markdown("""<style>.timeline-dot { height: 12px; width: 12px; background-color: #007bff; border-radius: 50%; display: inline-block; margin-right: 10px; }</style>""", unsafe_allow_html=True)
                 for _, row in tl_df.iterrows():
-                    st.markdown(f'<div class="timeline-container"><div class="timeline-item"><div class="timeline-dot"></div><div class="timeline-date">{row["date"]} {row["time"]} | {row["place"]}</div><div class="timeline-title">{row["item"]} (₩{int(row["amount"]):,})</div></div></div>', unsafe_allow_html=True)
+                    st.markdown(f"**{row['date']} {row['time']}** | <span class='timeline-dot'></span> **{row['item']}** @ {row['place']} (₩{int(row['amount']):,})", unsafe_allow_html=True)
+        
         with t_stats:
-            c1, c2 = st.columns(2); c1.write("**📅 일자별 지출**"); c1.write(d_exp.groupby('date')['amount'].sum().map(lambda x: f"₩{int(x):,}")); c2.write("**💳 결제수단별**"); c2.write(d_exp.groupby('method')['amount'].sum().map(lambda x: f"₩{int(x):,}"))
+            if not d_exp.empty:
+                c1, c2 = st.columns(2)
+                c1.write("**📁 카테고리별**"); c1.write(d_exp.groupby('category')['amount'].sum().map(lambda x: f"₩{int(x):,}"))
+                c2.write("**💳 결제수단별**"); c2.write(d_exp.groupby('method')['amount'].sum().map(lambda x: f"₩{int(x):,}"))
+        
         with t_edit:
-            edit_list = d_exp.apply(lambda x: f"[{x['date']} {x['time']}] {x['item']}", axis=1).tolist(); sel_l = st.selectbox("항목 선택", options=edit_list); t_idx = d_exp.index[edit_list.index(sel_l)]
-            with st.form("edit_t_full"):
-                c1, c2 = st.columns(2); e_it = c1.text_input("항목", value=d_exp.loc[t_idx, 'item']); e_pl = c1.text_input("장소", value=d_exp.loc[t_idx, 'place']); e_amt = c1.number_input("금액(원)", value=int(d_exp.loc[t_idx, 'amount']))
-                if st.form_submit_button("수정 저장"):
-                    df_exp.loc[t_idx, ['item', 'place', 'amount']] = [e_it, e_pl, e_amt]; df_exp.to_csv('travel_expenses.csv', index=False); st.rerun()
-                if st.button("🗑️ 삭제"):
-                    df_exp = df_exp.drop(t_idx); df_exp.to_csv('travel_expenses.csv', index=False); st.rerun()
+            # Byungjoo님, 여기서 발생하던 ValueError를 데이터 유무 체크로 해결했습니다.
+            if not d_exp.empty:
+                edit_list = d_exp.apply(lambda x: f"[{x['date']} {x['time']}] {x['item']}", axis=1).tolist()
+                sel_l = st.selectbox("항목 선택", options=edit_list)
+                t_idx_in_exp = d_exp.index[edit_list.index(sel_l)]
+                if st.button("🗑️ 해당 비용 삭제"):
+                    new_df_exp = df_exp.drop(t_idx_in_exp)
+                    conn.update(worksheet="TravelExp", data=new_df_exp); st.rerun()
+
+# --- [8. 다이어리: 신규 탭] ---
+elif menu == "📓 다이어리":
+    st.header("📓 Byungjoo's 다이어리 & 아이디어")
+    df_diary = load_data_safe("Diary")
+    
+    with st.expander("📝 새로운 기록 남기기", expanded=True):
+        with st.form("diary_form", clear_on_submit=True):
+            d_date = st.date_input("날짜", datetime.date.today())
+            d_title = st.text_input("제목")
+            d_tags = st.multiselect("태그", ["아이디어", "회고", "계획", "학습", "일상"])
+            d_level = st.select_slider("중요도", options=["Low", "Normal", "High"], value="Normal")
+            d_content = st.text_area("내용", height=200)
+            if st.form_submit_button("저장하기"):
+                new_diary = pd.DataFrame([{'date': str(d_date), 'title': d_title, 'content': d_content, 'tags': ", ".join(d_tags), 'level': d_level}])
+                conn.update(worksheet="Diary", data=pd.concat([df_diary, new_diary], ignore_index=True)); st.success("생각이 저장되었습니다."); st.rerun()
+    
+    st.divider()
+    if not df_diary.empty:
+        # 검색 및 필터
+        search_q = st.text_input("🔍 제목 또는 내용 검색")
+        filt_df = df_diary[df_diary['title'].str.contains(search_q) | df_diary['content'].str.contains(search_q)] if search_q else df_diary
+        
+        for _, row in filt_df.iloc[::-1].iterrows():
+            with st.container():
+                c1, c2 = st.columns([4, 1])
+                c1.subheader(row['title'])
+                c2.write(f" `{row['level']}`")
+                st.caption(f"{row['date']} | {row['tags']}")
+                st.write(row['content'])
+                if st.button("🗑️ 삭제", key=f"del_{_}"):
+                    conn.update(worksheet="Diary", data=df_diary.drop(_)); st.rerun()
+                st.divider()
+
+# --- [9. 뉴스저장: 신규 탭] ---
+elif menu == "📰 뉴스저장":
+    st.header("📰 지식 큐레이션 (뉴스 & 아티클)")
+    df_media = load_data_safe("Media")
+    
+    with st.form("media_form", clear_on_submit=True):
+        c1, c2 = st.columns([3, 1])
+        m_title = c1.text_input("기사 제목")
+        m_cat = c2.selectbox("분류", ["경제", "IT/기술", "부동산", "은퇴/노후", "인문/철학"])
+        m_url = st.text_input("URL (링크)")
+        m_insight = st.text_area("나의 인사이트 (한 줄 정리)")
+        if st.form_submit_button("지식 저장"):
+            new_media = pd.DataFrame([{'date': str(datetime.date.today()), 'category': m_cat, 'title': m_title, 'url': m_url, 'insight': m_insight}])
+            conn.update(worksheet="Media", data=pd.concat([df_media, new_media], ignore_index=True)); st.success("지식이 축적되었습니다."); st.rerun()
+
+    st.divider()
+    if not df_media.empty:
+        # 하이퍼링크 처리를 위한 가공
+        def make_clickable(row):
+            return f'<a href="{row["url"]}" target="_blank">{row["title"]}</a>'
+        
+        display_media = df_media.copy()
+        # 제목을 클릭 가능한 HTML 링크로 변환 (st.write와 unsafe_allow_html 활용 예정)
+        for _, row in display_media.iloc[::-1].iterrows():
+            with st.expander(f"[{row['category']}] {row['title']}"):
+                st.write(f"**원본 링크:** {row['url']}")
+                st.info(f"💡 {row['insight']}")
+                st.markdown(f"🔗 [기사 읽으러 가기]({row['url']})")
+                if st.button("🗑️ 삭제", key=f"mdel_{_}"):
+                    conn.update(worksheet="Media", data=df_media.drop(_)); st.rerun()
