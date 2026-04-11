@@ -2,6 +2,7 @@ import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 import datetime
+from datetime import timedelta, timezone  # KST 보정을 위해 추가
 import plotly.graph_objects as go
 import os
 import plotly.express as px
@@ -10,9 +11,16 @@ import numpy as np
 from io import StringIO
 
 # 1. 앱 설정
-st.set_page_config(page_title="은퇴 준비하기 v6.0.0", layout="wide")
+st.set_page_config(page_title="은퇴 준비하기 v6.0.1", layout="wide")
 
-# 2. 구글 시트 고유 ID (인증된 서비스 계정 사용)
+# 2. 한국 표준시(KST) 설정 및 은퇴 D-Day 계산
+# 서버 시간에 관계없이 항상 한국 표준시로 오늘 날짜를 가져옵니다.
+KST = timezone(timedelta(hours=9))
+now_kst = datetime.datetime.now(KST).date()
+ret_date = datetime.date(2028, 12, 31)
+d_day = (ret_date - now_kst).days
+
+# 3. 구글 시트 고유 ID (인증된 서비스 계정 사용)
 SHEET_ID = "1LrVto7YUbodWwGsRBQ0PR7evNnEmDtf_gNEj8gM7ngA"
 
 # --- [데이터 로드 함수: 400/404 에러 방지용 직접 호출 로직] ---
@@ -60,28 +68,23 @@ def reset_quiz():
     st.session_state.pop('q_idx', None)
     st.session_state.quiz_input = ""
 
-# --- [사이드바 메뉴: 그룹화하여 정리] ---
+# --- [사이드바 메뉴: 통합 및 전환 이슈 해결] ---
 with st.sidebar:
-    st.title("은퇴 준비하기 v6.0")
-    st.subheader("📊 자산 및 지출")
-    menu_fin = st.radio("금융 관리", ["💰 연금자산", "📈 연금시뮬", "💸 현금흐름", "💵 개인자산"], label_visibility="collapsed")
+    st.title("은퇴 준비하기 v6.0.1")
     
-    st.subheader("📝 자기계발 및 라이프")
-    menu_life = st.radio("라이프 관리", ["🔤 영어공부", "📚 도서관리", "✈️ 여행관리", "📓 다이어리", "📰 뉴스저장"], label_visibility="collapsed")
-    
-    # 두 라디오 버튼 통합 관리
-    if 'prev_menu' not in st.session_state: st.session_state.prev_menu = "💰 연금자산"
-    
-    # 금융 메뉴 클릭 시 라이프 메뉴 해제 로직은 Streamlit 특성상 radio 그룹으로 통합 권장하나, 
-    # 기존 UI 유지를 위해 단일 메뉴 변수로 통합 처리
-    menu = menu_life if menu_life in ["🔤 영어공부", "📚 도서관리", "✈️ 여행관리", "📓 다이어리", "📰 뉴스저장"] else menu_fin
-    
-    # 실제 선택된 메뉴 결정 (마지막 클릭 감지)
-    # ※ Byungjoo님, 사이드바가 무거워지지 않게 그룹화만 진행했습니다.
+    # 1) 메뉴 전환 이슈 해결을 위해 모든 옵션을 하나의 라디오 버튼으로 통합합니다.
+    # 기존 코드에서 두 그룹으로 나뉘어 서로 충돌하던 문제를 원천 차단했습니다.
+    st.subheader("📋 전체 메뉴")
+    menu_options = [
+        "💰 연금자산", "📈 연금시뮬", "💸 현금흐름", "💵 개인자산",
+        "🔤 영어공부", "📚 도서관리", "✈️ 여행관리", "📓 다이어리", "📰 뉴스저장"
+    ]
+    menu = st.radio("이동할 메뉴 선택", menu_options, label_visibility="collapsed")
     
     st.divider()
-    ret_date = datetime.date(2028, 12, 31)
-    st.metric("은퇴 D-Day", f"D-{(ret_date - datetime.date.today()).days}")
+    # 2) 은퇴 D-Day (KST 적용)
+    st.metric("은퇴 D-Day (KST)", f"D-{d_day}")
+    st.caption(f"현재 기준일: {now_kst}")
 
 # --- [1. 연금자산] ---
 if menu == "💰 연금자산":
@@ -107,7 +110,7 @@ if menu == "💰 연금자산":
     with t2:
         c1, c2 = st.columns(2)
         py = c1.selectbox("연도", [2026, 2027, 2028], key="p_y")
-        pm = c2.selectbox("월", [f"{i:02d}" for i in range(1, 13)], index=datetime.date.today().month-1, key="p_m")
+        pm = c2.selectbox("월", [f"{i:02d}" for i in range(1, 13)], index=now_kst.month-1, key="p_m")
         p_acc = st.selectbox("항목", ['퇴직연금', 'IRP', 'ISA', '개인연금'])
         p_amt = st.number_input("금액(원)", step=100000)
         if st.button("저장"):
@@ -185,7 +188,7 @@ elif menu == "💸 현금흐름":
     
     c_f1, c_f2 = st.columns(2)
     sel_y = c_f1.selectbox("조회 연도", [2025, 2026, 2027, 2028], index=1)
-    sel_m = c_f2.selectbox("조회 월", [f"{i:02d}" for i in range(1, 13)], index=datetime.date.today().month-1)
+    sel_m = c_f2.selectbox("조회 월", [f"{i:02d}" for i in range(1, 13)], index=now_kst.month-1)
     sel_period = f"{sel_y}-{sel_m}"
     
     t1, t2, t3, t4, t5 = st.tabs(["🚦 소비 신호등", "📝 내역 기록", "📊 지출 패턴 분석", "✏️ 내역 수정/삭제", "⚙️ 예산 설정"])
@@ -205,7 +208,7 @@ elif menu == "💸 현금흐름":
     with t2:
         with st.form("cf_form_v3", clear_on_submit=True):
             c1, c2 = st.columns(2)
-            f_date = c1.date_input("날짜", datetime.date.today()); f_type = c1.selectbox("구분", ["EXPENSE", "INCOME"])
+            f_date = c1.date_input("날짜", now_kst); f_type = c1.selectbox("구분", ["EXPENSE", "INCOME"])
             f_cat = c2.selectbox("카테고리", CF_CATEGORIES); f_amt = c2.number_input("금액", min_value=0, step=1000)
             f_memo = st.text_input("메모"); f_rec = st.checkbox("정기 지출/수입 여부")
             if st.form_submit_button("기록 저장"):
@@ -335,7 +338,7 @@ elif menu == "📚 도서관리":
         with st.form("book_reg_cloud", clear_on_submit=True):
             tc1, tc2 = st.columns(2)
             t = tc1.text_input("제목 (필수)"); a = tc1.text_input("저자"); p = tc1.number_input("가격", step=1000); s = tc1.text_input("구입처")
-            d = tc2.date_input("구입일", datetime.date.today()); cat = tc2.selectbox("분류", ["경제/경영", "자기계발", "IT/과학", "외국어", "심리/인문", "소설", "에세이", "역사", "기타"])
+            d = tc2.date_input("구입일", now_kst); cat = tc2.selectbox("분류", ["경제/경영", "자기계발", "IT/과학", "외국어", "심리/인문", "소설", "에세이", "역사", "기타"])
             r = tc2.slider("별점", 1, 5, 5); cmt = st.text_area("코멘트")
             if st.form_submit_button("도서 등록") and t:
                 new_book = pd.DataFrame([{'날짜': str(d), '제목': t, '저자': a, '가격': int(p), '구입처': s, '분류': cat, '별점': int(r), '코멘트': cmt, '연도': d.year}])
@@ -361,7 +364,7 @@ elif menu == "✈️ 여행관리":
     t_home, t_ledger, t_timeline, t_stats, t_edit = st.tabs(["🗺️ 여행지 관리", "💰 비용 리스트", "🗓️ 타임라인", "📊 지출 요약", "⚙️ 수정/삭제"])
     with t_home:
         with st.form("new_dest_cloud", clear_on_submit=True):
-            c1, c2, c3 = st.columns([2, 2, 1]); new_name = c1.text_input("여행지명"); new_start = c2.date_input("시작일"); new_end = c2.date_input("종료일"); new_status = c3.selectbox("상태", ["준비", "여행중", "완료"])
+            c1, c2, c3 = st.columns([2, 2, 1]); new_name = c1.text_input("여행지명"); new_start = c2.date_input("시작일", now_kst); new_end = c2.date_input("종료일", now_kst + timedelta(days=3)); new_status = c3.selectbox("상태", ["준비", "여행중", "완료"])
             if st.form_submit_button("여행지 추가") and new_name:
                 new_id = int(df_dest['id'].max() + 1) if not df_dest.empty else 1
                 new_row = pd.DataFrame([{'id': new_id, 'name': new_name, 'start_date': str(new_start), 'end_date': str(new_end), 'status': new_status}])
@@ -376,7 +379,7 @@ elif menu == "✈️ 여행관리":
             st.metric(f"'{sel_city}' 총 지출", f"₩{int(d_exp['amount'].sum()):,}" if not d_exp.empty else "₩0")
             with st.expander("➕ 비용 등록"):
                 with st.form("t_add_cloud"):
-                    c1, c2 = st.columns(2); d = c1.date_input("날짜"); tm = c1.time_input("시간"); it = c2.text_input("항목"); pl = c2.text_input("장소")
+                    c1, c2 = st.columns(2); d = c1.date_input("날짜", now_kst); tm = c1.time_input("시간", datetime.time(12, 0)); it = c2.text_input("항목"); pl = c2.text_input("장소")
                     cat = st.selectbox("카테고리", ["식비", "교통", "관광", "쇼핑", "숙박", "기타"]); pay = st.selectbox("결제수단", ["트래블월렛", "하나카드", "삼성카드", "현금"])
                     unit = st.selectbox("통화", ["KRW", "TWD", "USD", "EUR"]); amt = c2.number_input("금액", min_value=0)
                     if st.form_submit_button("저장"):
@@ -399,7 +402,6 @@ elif menu == "✈️ 여행관리":
                 c2.write("**💳 결제수단별**"); c2.write(d_exp.groupby('method')['amount'].sum().map(lambda x: f"₩{int(x):,}"))
         
         with t_edit:
-            # Byungjoo님, 여기서 발생하던 ValueError를 데이터 유무 체크로 해결했습니다.
             if not d_exp.empty:
                 edit_list = d_exp.apply(lambda x: f"[{x['date']} {x['time']}] {x['item']}", axis=1).tolist()
                 sel_l = st.selectbox("항목 선택", options=edit_list)
@@ -415,7 +417,7 @@ elif menu == "📓 다이어리":
     
     with st.expander("📝 새로운 기록 남기기", expanded=True):
         with st.form("diary_form", clear_on_submit=True):
-            d_date = st.date_input("날짜", datetime.date.today())
+            d_date = st.date_input("날짜", now_kst)
             d_title = st.text_input("제목")
             d_tags = st.multiselect("태그", ["아이디어", "회고", "계획", "학습", "일상"])
             d_level = st.select_slider("중요도", options=["Low", "Normal", "High"], value="Normal")
@@ -426,9 +428,8 @@ elif menu == "📓 다이어리":
     
     st.divider()
     if not df_diary.empty:
-        # 검색 및 필터
         search_q = st.text_input("🔍 제목 또는 내용 검색")
-        filt_df = df_diary[df_diary['title'].str.contains(search_q) | df_diary['content'].str.contains(search_q)] if search_q else df_diary
+        filt_df = df_diary[df_diary['title'].str.contains(search_q, na=False) | df_diary['content'].str.contains(search_q, na=False)] if search_q else df_diary
         
         for _, row in filt_df.iloc[::-1].iterrows():
             with st.container():
@@ -453,18 +454,12 @@ elif menu == "📰 뉴스저장":
         m_url = st.text_input("URL (링크)")
         m_insight = st.text_area("나의 인사이트 (한 줄 정리)")
         if st.form_submit_button("지식 저장"):
-            new_media = pd.DataFrame([{'date': str(datetime.date.today()), 'category': m_cat, 'title': m_title, 'url': m_url, 'insight': m_insight}])
+            new_media = pd.DataFrame([{'date': str(now_kst), 'category': m_cat, 'title': m_title, 'url': m_url, 'insight': m_insight}])
             conn.update(worksheet="Media", data=pd.concat([df_media, new_media], ignore_index=True)); st.success("지식이 축적되었습니다."); st.rerun()
 
     st.divider()
     if not df_media.empty:
-        # 하이퍼링크 처리를 위한 가공
-        def make_clickable(row):
-            return f'<a href="{row["url"]}" target="_blank">{row["title"]}</a>'
-        
-        display_media = df_media.copy()
-        # 제목을 클릭 가능한 HTML 링크로 변환 (st.write와 unsafe_allow_html 활용 예정)
-        for _, row in display_media.iloc[::-1].iterrows():
+        for _, row in df_media.iloc[::-1].iterrows():
             with st.expander(f"[{row['category']}] {row['title']}"):
                 st.write(f"**원본 링크:** {row['url']}")
                 st.info(f"💡 {row['insight']}")
