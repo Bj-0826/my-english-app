@@ -13,7 +13,7 @@ from io import StringIO
 # ==========================================
 # 1. 앱 기본 설정 및 환경 변수
 # ==========================================
-st.set_page_config(page_title="은퇴 준비하기 v6.1.0", layout="wide")
+st.set_page_config(page_title="은퇴 준비하기 v6.1.1", layout="wide")
 
 # 한국 표준시(KST) 보정 및 D-Day 계산
 KST = timezone(timedelta(hours=9))
@@ -85,7 +85,7 @@ def reset_quiz():
 # ==========================================
 
 with st.sidebar:
-    st.title("은퇴 준비하기 v6.1.0")
+    st.title("은퇴 준비하기 v6.1.1")
     st.subheader("📋 전체 메뉴")
     
     menu_options = [
@@ -531,10 +531,11 @@ elif menu == "✈️ 여행관리":
                         es = e2.date_input("출발일 수정", value=pd.to_datetime(row['start_date']).date())
                         ee = e2.date_input("도착일 수정", value=pd.to_datetime(row['end_date']).date())
                         est = e3.selectbox("상태 수정", ["준비", "여행중", "완료"], index=["준비", "여행중", "완료"].index(row['status']))
-                        if st.form_submit_button("💾 여행지 정보 저장"):
+                        b1, b2 = st.columns(2)
+                        if b1.form_submit_button("💾 여행지 정보 저장"):
                             df_dest.at[i, 'name'], df_dest.at[i, 'start_date'], df_dest.at[i, 'end_date'], df_dest.at[i, 'status'] = en, str(es), str(ee), est
                             conn.update(worksheet="TravelDest", data=df_dest); st.rerun()
-                        if st.form_submit_button("🗑️ 여행지 전체 삭제"):
+                        if b2.form_submit_button("🗑️ 여행지 전체 삭제"):
                             conn.update(worksheet="TravelDest", data=df_dest.drop(i)); st.rerun()
 
     if not df_dest.empty:
@@ -565,12 +566,20 @@ elif menu == "✈️ 여행관리":
         
         with t_stats:
             if not d_exp.empty:
+                # 1. 일자별 요약
                 st.subheader("📅 일자별 지출 리포트")
                 daily_sum = d_exp.groupby('date')['amount'].sum().reset_index()
                 st.table(daily_sum.assign(amount=lambda x: x['amount'].map('{:,}원'.format)))
+                
+                # 2. 결제수단별 요약
                 st.subheader("💳 결제수단별 합계")
                 method_sum = d_exp.groupby('method')['amount'].sum().reset_index()
                 st.table(method_sum.assign(amount=lambda x: x['amount'].map('{:,}원'.format)))
+
+                # 3. 카테고리별 요약 (요청하신 부분 추가)
+                st.subheader("📁 카테고리별 요약")
+                cat_sum = d_exp.groupby('category')['amount'].sum().reset_index()
+                st.table(cat_sum.assign(amount=lambda x: x['amount'].map('{:,}원'.format)))
         
         with t_edit:
             if not d_exp.empty:
@@ -585,10 +594,11 @@ elif menu == "✈️ 여행관리":
                     e_amt = ec2.number_input("금액 수정", value=int(d_exp.loc[t_idx, 'amount']))
                     e_cat = ec2.selectbox("카테고리 수정", ["식비", "교통", "관광", "쇼핑", "숙박", "기타"], index=0)
                     e_met = ec2.selectbox("수단 수정", METHODS, index=METHODS.index(d_exp.loc[t_idx, 'method']) if d_exp.loc[t_idx, 'method'] in METHODS else 0)
-                    if st.form_submit_button("💾 지출 정보 수정 저장"):
+                    b1, b2 = st.columns(2)
+                    if b1.form_submit_button("💾 지출 정보 수정 저장"):
                         df_exp.loc[t_idx, ['date', 'item', 'place', 'amount', 'category', 'method']] = [str(e_date), e_it, e_pl, e_amt, e_cat, e_met]
                         conn.update(worksheet="TravelExp", data=df_exp); st.rerun()
-                    if st.form_submit_button("🗑️ 지출 항목 삭제"):
+                    if b2.form_submit_button("🗑️ 지출 항목 삭제"):
                         conn.update(worksheet="TravelExp", data=df_exp.drop(t_idx)); st.rerun()
 
 # --- [8. 다이어리] ---
@@ -616,10 +626,11 @@ elif menu == "📓 다이어리":
                     with st.form(f"edit_diary_{i}"):
                         e_title = st.text_input("제목 수정", value=row['title'])
                         e_content = st.text_area("내용 수정", value=row['content'], height=150)
-                        if st.form_submit_button("💾 메모 수정 저장"):
+                        c1, c2 = st.columns(2)
+                        if c1.form_submit_button("💾 메모 수정 저장"):
                             df_diary.at[i, 'title'], df_diary.at[i, 'content'] = e_title, e_content
                             conn.update(worksheet="Diary", data=df_diary); st.rerun()
-                        if st.form_submit_button("🗑️ 메모 삭제"):
+                        if c2.form_submit_button("🗑️ 메모 삭제"):
                             conn.update(worksheet="Diary", data=df_diary.drop(i)); st.rerun()
 
 # --- [9. 뉴스저장] ---
@@ -637,16 +648,17 @@ elif menu == "📰 뉴스저장":
     
     if not df_media.empty:
         st.divider()
-        st.subheader("📝 저장된 지식 리스트")
+        st.subheader("📝 저장된 지식 리스트") # (수정/삭제 가능) 문구 삭제
         for i, row in df_media.iloc[::-1].iterrows():
             with st.expander(f"{row['title']}"):
                 with st.form(f"edit_media_{i}"):
                     e_m_title = st.text_input("제목 수정", value=row['title'])
                     e_m_url = st.text_input("URL 수정", value=row['url'])
                     e_m_insight = st.text_area("인사이트 수정", value=row['insight'])
-                    if st.form_submit_button("💾 정보 업데이트"):
+                    c1, c2 = st.columns(2)
+                    if c1.form_submit_button("💾 정보 업데이트"): # 번호 문구 삭제
                         df_media.at[i, 'title'], df_media.at[i, 'url'], df_media.at[i, 'insight'] = e_m_title, e_m_url, e_m_insight
                         conn.update(worksheet="Media", data=df_media); st.rerun()
-                    if st.form_submit_button("🗑️ 지식 삭제"):
+                    if c2.form_submit_button("🗑️ 지식 삭제"): # 번호 문구 삭제
                         conn.update(worksheet="Media", data=df_media.drop(i)); st.rerun()
                 st.markdown(f"🔗 [기사 원문 읽기]({row['url']})")
