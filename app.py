@@ -13,7 +13,7 @@ from io import StringIO
 # ==========================================
 # 1. 앱 기본 설정 및 환경 변수
 # ==========================================
-st.set_page_config(page_title="은퇴 준비하기 v6.1.1", layout="wide")
+st.set_page_config(page_title="은퇴 준비하기 v6.1.2", layout="wide")
 
 # 한국 표준시(KST) 보정 및 D-Day 계산
 KST = timezone(timedelta(hours=9))
@@ -85,7 +85,7 @@ def reset_quiz():
 # ==========================================
 
 with st.sidebar:
-    st.title("은퇴 준비하기 v6.1.1")
+    st.title("은퇴 준비하기 v6.1.2")
     st.subheader("📋 전체 메뉴")
     
     menu_options = [
@@ -113,25 +113,46 @@ if menu == "💰 연금자산":
     
     with t1:
         if not df_p.empty and 'date' in df_p.columns:
-            dates_sorted = sorted(df_p['date'].unique(), key=lambda x: pd.to_datetime(x, format='%Y-%m', errors='coerce'))
-            if dates_sorted:
-                recent = dates_sorted[-3:]
-                df_r = df_p[df_p['date'].isin(recent)]
-                m_total = df_r.groupby('date')['amount'].sum().reindex(recent).fillna(0)
+            # 날짜 정렬을 위한 전처리
+            df_p['date_dt'] = pd.to_datetime(df_p['date'], format='%Y-%m', errors='coerce')
+            dates_sorted_dt = sorted(df_p['date_dt'].dropna().unique())
+            
+            if dates_sorted_dt:
+                recent_dt = dates_sorted_dt[-3:]
+                # 캡처 요청 반영: 표시용 날짜 포맷팅 (26년 03월 형태)
+                recent_labels = [d.strftime('%y년 %m월') for d in recent_dt]
+                
+                # 원본 문자열 기반 필터링
+                recent_str = [d.strftime('%Y-%m') for d in recent_dt]
+                df_r = df_p[df_p['date'].isin(recent_str)].copy()
+                
+                # 날짜를 다시 정렬된 dt 기반으로 매핑하여 그룹화
+                m_total = df_r.groupby('date_dt')['amount'].sum().reindex(recent_dt).fillna(0)
                 
                 cur = m_total.iloc[-1]
                 prev = m_total.iloc[-2] if len(m_total) > 1 else cur
                 diff = cur - prev
                 
                 c1, c2 = st.columns(2)
-                c1.metric(f"{recent[-1]} 합계", f"{int(cur):,}원")
+                c1.metric(f"{recent_labels[-1]} 합계", f"{int(cur):,}원")
                 c2.metric("전월 대비", f"{(diff/prev*100) if prev!=0 else 0:+.1f}%", f"{int(diff):+,}원")
                 
                 fig = go.Figure()
                 for acc in sorted(df_r['account'].unique()):
-                    acc_df = df_r[df_r['account'] == acc].set_index('date').reindex(recent).fillna(0).reset_index()
-                    fig.add_trace(go.Bar(x=acc_df['date'], y=acc_df['amount'], name=acc))
-                fig.update_layout(barmode='stack', height=400)
+                    acc_df = df_r[df_r['account'] == acc].set_index('date_dt').reindex(recent_dt).fillna(0).reset_index()
+                    # X축에 포맷팅된 라벨 적용
+                    fig.add_trace(go.Bar(
+                        x=[d.strftime('%y년 %m월') for d in acc_df['date_dt']], 
+                        y=acc_df['amount'], 
+                        name=acc
+                    ))
+                
+                fig.update_layout(
+                    barmode='stack', 
+                    height=450,
+                    xaxis=dict(type='category'), # X축을 카테고리로 지정하여 자동 변동 방지
+                    margin=dict(l=20, r=20, t=20, b=20)
+                )
                 st.plotly_chart(fig, use_container_width=True)
                 
     with t2:
@@ -163,8 +184,10 @@ elif menu == "📈 연금시뮬":
     current_total = 0
     
     if not df_p.empty:
-        latest_date = sorted(df_p['date'].unique(), key=lambda x: pd.to_datetime(x, format='%Y-%m', errors='coerce'))[-1]
-        current_total = df_p[df_p['date'] == latest_date]['amount'].sum()
+        df_p['date_dt'] = pd.to_datetime(df_p['date'], format='%Y-%m', errors='coerce')
+        latest_dt = df_p['date_dt'].max()
+        if pd.notnull(latest_dt):
+            current_total = df_p[df_p['date_dt'] == latest_dt]['amount'].sum()
         
     tab1, tab2, tab3 = st.tabs(["📉 자산 예측 시뮬레이션", "🏛️ 국민연금 & 세금 가이드", "💡 기획자 제언"])
     
@@ -173,11 +196,11 @@ elif menu == "📈 연금시뮬":
         with c1:
             st.subheader("⚙️ 조건 설정")
             base_asset = st.number_input("기초 자산 (현재연금+퇴직금)", value=int(current_total + 350000000), step=10000000)
-            monthly_withdraw = st.slider("월 희망 수령액 (만 원)", 300, 1000, 600) * 10000
+            monthly_withdraw = st.slider("월 희망 수령액 (만 원)", 300, 1000, 450) * 10000 # 450만원으로 기본값 조정
             annual_return = st.slider("기대 연 수익률 (%)", 0.0, 10.0, 4.0, 0.5) / 100
             inflation_rate = st.slider("예상 물가 상승률 (%)", 0.0, 5.0, 2.0, 0.5) / 100
             start_y = st.selectbox("시뮬레이션 시작 연도", range(2029, 2040), index=0)
-            end_y = st.selectbox("시뮬레이션 종료 연도", range(start_y+1, 2070), index=21)
+            end_y = st.selectbox("시뮬레이션 종료 연도", range(start_y+1, 2075), index=25)
             use_national = st.checkbox("2038년 8월부터 월 150만원 합산", value=True)
             
         with c2:
@@ -194,7 +217,10 @@ elif menu == "📈 연금시뮬":
                 asset_history.append(cur_asset)
                 
             sim_df = pd.DataFrame({"날짜": dates, "잔액": asset_history})
-            st.plotly_chart(px.area(sim_df, x="날짜", y="잔액", title="30년 자산 추이 예측"), use_container_width=True)
+            # 시뮬레이션 차트도 날짜 형식 조정
+            fig_sim = px.area(sim_df, x="날짜", y="잔액", title=f"월 {int(monthly_withdraw/10000)}만원 인출 시 자산 추이")
+            fig_sim.update_xaxes(tickformat="%y년")
+            st.plotly_chart(fig_sim, use_container_width=True)
             
     with tab2:
         st.subheader("📚 연금 수령 전략 사전")
@@ -331,7 +357,7 @@ elif menu == "💵 개인자산":
                     y = int(str(k)[1:5])
                     w = int(str(k).split('W')[1])
                     d = datetime.date(y, 1, 1) + datetime.timedelta(weeks=w-1)
-                    return f"{d.month}월 {((d.day-1)//7)+1}주 (W{w})"
+                    return f"{d.strftime('%y년')} {d.month}월 {((d.day-1)//7)+1}주"
                 except: return str(k)
                 
             weeks = sorted([str(d) for d in df_per['date'].unique()])
@@ -350,13 +376,13 @@ elif menu == "💵 개인자산":
                 for acc in sorted(df_r['account'].unique()):
                     acc_df = df_r[df_r['account'] == acc].set_index('date').reindex(recent).fillna(0).reset_index()
                     fig.add_trace(go.Bar(x=[get_w_label(d) for d in acc_df['date']], y=acc_df['amount'], name=acc))
-                fig.update_layout(barmode='stack', height=400)
+                fig.update_layout(barmode='stack', height=400, xaxis=dict(type='category'))
                 st.plotly_chart(fig, use_container_width=True)
                 
     with t2:
         c1, c2 = st.columns(2)
         pery = c1.selectbox("연도", [2026, 2027, 2028])
-        perw = c2.number_input("주차 (Week)", 1, 53, 14)
+        perw = c2.number_input("주차 (Week)", 1, 53, now_kst.isocalendar()[1])
         p_acc_per = st.selectbox("계좌", ['KB증권', '삼성증권', '카카오', '한투증권', '현금/기타'])
         per_amt = st.number_input("현재 잔액(원)", step=10000)
         
@@ -540,66 +566,65 @@ elif menu == "✈️ 여행관리":
 
     if not df_dest.empty:
         sel_city = st.sidebar.selectbox("📍 여행지 선택", options=df_dest['name'].tolist())
-        curr = df_dest[df_dest['name'] == sel_city].iloc[0]
-        d_exp = df_exp[df_exp['dest_id'] == curr['id']].copy() if not df_exp.empty else pd.DataFrame()
-        
-        with t_ledger:
-            st.metric(f"'{sel_city}' 누적 비용", f"₩{int(d_exp['amount'].sum()):,}" if not d_exp.empty else "₩0")
-            with st.expander("➕ 실시간 지출 기록", expanded=True):
-                with st.form("t_add_v5", clear_on_submit=True):
-                    c1, c2 = st.columns(2)
-                    d = c1.date_input("날짜", now_kst)
-                    it = c2.text_input("소비 항목")
-                    pl = c1.text_input("사용 장소")
-                    amt = c2.number_input("지출 금액", min_value=0)
-                    cat = c1.selectbox("카테고리", ["식비", "교통", "관광", "쇼핑", "숙박", "기타"])
-                    met = c2.selectbox("결제 수단", METHODS)
-                    if st.form_submit_button("💰 비용 저장 및 초기화"):
-                        new_e = pd.DataFrame([{'dest_id': curr['id'], 'date': str(d), 'time': '12:00', 'item': it, 'place': pl, 'category': cat, 'method': met, 'amount': int(amt), 'unit': 'KRW', 'memo': ''}])
-                        conn.update(worksheet="TravelExp", data=pd.concat([df_exp, new_e], ignore_index=True))
-                        st.success("기록되었습니다."); st.rerun()
-        
-        with t_timeline:
-            if not d_exp.empty:
-                for _, row in d_exp.sort_values('date').iterrows():
-                    st.write(f"**[{row['date']}]** {row['item']} | {row['place']} ({row['method']}) - ₩{int(row['amount']):,}")
-        
-        with t_stats:
-            if not d_exp.empty:
-                # 1. 일자별 요약
-                st.subheader("📅 일자별 지출 리포트")
-                daily_sum = d_exp.groupby('date')['amount'].sum().reset_index()
-                st.table(daily_sum.assign(amount=lambda x: x['amount'].map('{:,}원'.format)))
-                
-                # 2. 결제수단별 요약
-                st.subheader("💳 결제수단별 합계")
-                method_sum = d_exp.groupby('method')['amount'].sum().reset_index()
-                st.table(method_sum.assign(amount=lambda x: x['amount'].map('{:,}원'.format)))
+        curr_row = df_dest[df_dest['name'] == sel_city]
+        if not curr_row.empty:
+            curr = curr_row.iloc[0]
+            d_exp = df_exp[df_exp['dest_id'] == curr['id']].copy() if not df_exp.empty else pd.DataFrame()
+            
+            with t_ledger:
+                st.metric(f"'{sel_city}' 누적 비용", f"₩{int(d_exp['amount'].sum()):,}" if not d_exp.empty else "₩0")
+                with st.expander("➕ 실시간 지출 기록", expanded=True):
+                    with st.form("t_add_v5", clear_on_submit=True):
+                        c1, c2 = st.columns(2)
+                        d_input = c1.date_input("날짜", now_kst)
+                        it = c2.text_input("소비 항목")
+                        pl = c1.text_input("사용 장소")
+                        amt = c2.number_input("지출 금액", min_value=0)
+                        cat = c1.selectbox("카테고리", ["식비", "교통", "관광", "쇼핑", "숙박", "기타"])
+                        met = c2.selectbox("결제 수단", METHODS)
+                        if st.form_submit_button("💰 비용 저장 및 초기화"):
+                            new_e = pd.DataFrame([{'dest_id': curr['id'], 'date': str(d_input), 'time': '12:00', 'item': it, 'place': pl, 'category': cat, 'method': met, 'amount': int(amt), 'unit': 'KRW', 'memo': ''}])
+                            conn.update(worksheet="TravelExp", data=pd.concat([df_exp, new_e], ignore_index=True))
+                            st.success("기록되었습니다."); st.rerun()
+            
+            with t_timeline:
+                if not d_exp.empty:
+                    for _, row in d_exp.sort_values('date').iterrows():
+                        st.write(f"**[{row['date']}]** {row['item']} | {row['place']} ({row['method']}) - ₩{int(row['amount']):,}")
+            
+            with t_stats:
+                if not d_exp.empty:
+                    st.subheader("📅 일자별 지출 리포트")
+                    daily_sum = d_exp.groupby('date')['amount'].sum().reset_index()
+                    st.table(daily_sum.assign(amount=lambda x: x['amount'].map('{:,}원'.format)))
+                    
+                    st.subheader("💳 결제수단별 합계")
+                    method_sum = d_exp.groupby('method')['amount'].sum().reset_index()
+                    st.table(method_sum.assign(amount=lambda x: x['amount'].map('{:,}원'.format)))
 
-                # 3. 카테고리별 요약 (요청하신 부분 추가)
-                st.subheader("📁 카테고리별 요약")
-                cat_sum = d_exp.groupby('category')['amount'].sum().reset_index()
-                st.table(cat_sum.assign(amount=lambda x: x['amount'].map('{:,}원'.format)))
-        
-        with t_edit:
-            if not d_exp.empty:
-                edit_list = d_exp.apply(lambda x: f"[{x['date']}] {x['item']} (₩{int(x['amount']):,}원)", axis=1).tolist()
-                sel_l = st.selectbox("수정할 지출 내역 선택", options=edit_list)
-                t_idx = d_exp.index[edit_list.index(sel_l)]
-                with st.form("edit_t_exp_full"):
-                    ec1, ec2 = st.columns(2)
-                    e_date = ec1.date_input("날짜 수정", value=pd.to_datetime(d_exp.loc[t_idx, 'date']).date())
-                    e_it = ec1.text_input("항목명 수정", value=d_exp.loc[t_idx, 'item'])
-                    e_pl = ec1.text_input("장소 수정", value=d_exp.loc[t_idx, 'place'])
-                    e_amt = ec2.number_input("금액 수정", value=int(d_exp.loc[t_idx, 'amount']))
-                    e_cat = ec2.selectbox("카테고리 수정", ["식비", "교통", "관광", "쇼핑", "숙박", "기타"], index=0)
-                    e_met = ec2.selectbox("수단 수정", METHODS, index=METHODS.index(d_exp.loc[t_idx, 'method']) if d_exp.loc[t_idx, 'method'] in METHODS else 0)
-                    b1, b2 = st.columns(2)
-                    if b1.form_submit_button("💾 지출 정보 수정 저장"):
-                        df_exp.loc[t_idx, ['date', 'item', 'place', 'amount', 'category', 'method']] = [str(e_date), e_it, e_pl, e_amt, e_cat, e_met]
-                        conn.update(worksheet="TravelExp", data=df_exp); st.rerun()
-                    if b2.form_submit_button("🗑️ 지출 항목 삭제"):
-                        conn.update(worksheet="TravelExp", data=df_exp.drop(t_idx)); st.rerun()
+                    st.subheader("📁 카테고리별 요약")
+                    cat_sum = d_exp.groupby('category')['amount'].sum().reset_index()
+                    st.table(cat_sum.assign(amount=lambda x: x['amount'].map('{:,}원'.format)))
+            
+            with t_edit:
+                if not d_exp.empty:
+                    edit_list = d_exp.apply(lambda x: f"[{x['date']}] {x['item']} (₩{int(x['amount']):,}원)", axis=1).tolist()
+                    sel_l = st.selectbox("수정할 지출 내역 선택", options=edit_list)
+                    t_idx = d_exp.index[edit_list.index(sel_l)]
+                    with st.form("edit_t_exp_full"):
+                        ec1, ec2 = st.columns(2)
+                        e_date = ec1.date_input("날짜 수정", value=pd.to_datetime(d_exp.loc[t_idx, 'date']).date())
+                        e_it = ec1.text_input("항목명 수정", value=d_exp.loc[t_idx, 'item'])
+                        e_pl = ec1.text_input("장소 수정", value=d_exp.loc[t_idx, 'place'])
+                        e_amt = ec2.number_input("금액 수정", value=int(d_exp.loc[t_idx, 'amount']))
+                        e_cat = ec2.selectbox("카테고리 수정", ["식비", "교통", "관광", "쇼핑", "숙박", "기타"], index=0)
+                        e_met = ec2.selectbox("수단 수정", METHODS, index=METHODS.index(d_exp.loc[t_idx, 'method']) if d_exp.loc[t_idx, 'method'] in METHODS else 0)
+                        b1, b2 = st.columns(2)
+                        if b1.form_submit_button("💾 지출 정보 수정 저장"):
+                            df_exp.loc[t_idx, ['date', 'item', 'place', 'amount', 'category', 'method']] = [str(e_date), e_it, e_pl, e_amt, e_cat, e_met]
+                            conn.update(worksheet="TravelExp", data=df_exp); st.rerun()
+                        if b2.form_submit_button("🗑️ 지출 항목 삭제"):
+                            conn.update(worksheet="TravelExp", data=df_exp.drop(t_idx)); st.rerun()
 
 # --- [8. 다이어리] ---
 elif menu == "📓 다이어리":
@@ -648,7 +673,7 @@ elif menu == "📰 뉴스저장":
     
     if not df_media.empty:
         st.divider()
-        st.subheader("📝 저장된 지식 리스트") # (수정/삭제 가능) 문구 삭제
+        st.subheader("📝 저장된 지식 리스트")
         for i, row in df_media.iloc[::-1].iterrows():
             with st.expander(f"{row['title']}"):
                 with st.form(f"edit_media_{i}"):
@@ -656,9 +681,9 @@ elif menu == "📰 뉴스저장":
                     e_m_url = st.text_input("URL 수정", value=row['url'])
                     e_m_insight = st.text_area("인사이트 수정", value=row['insight'])
                     c1, c2 = st.columns(2)
-                    if c1.form_submit_button("💾 정보 업데이트"): # 번호 문구 삭제
+                    if c1.form_submit_button("💾 정보 업데이트"):
                         df_media.at[i, 'title'], df_media.at[i, 'url'], df_media.at[i, 'insight'] = e_m_title, e_m_url, e_m_insight
                         conn.update(worksheet="Media", data=df_media); st.rerun()
-                    if c2.form_submit_button("🗑️ 지식 삭제"): # 번호 문구 삭제
+                    if c2.form_submit_button("🗑️ 지식 삭제"):
                         conn.update(worksheet="Media", data=df_media.drop(i)); st.rerun()
                 st.markdown(f"🔗 [기사 원문 읽기]({row['url']})")
