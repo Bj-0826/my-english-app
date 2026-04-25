@@ -106,71 +106,113 @@ with st.sidebar:
     # 은퇴 D-Day 지표 (KST 기준)
     st.metric("은퇴 D-Day (KST)", f"D-{d_day}")
     st.caption(f"현재 기준일: {now_kst}")
-
 # ==========================================
 # 4. 각 메뉴별 비즈니스 로직
 # ==========================================
 
-# --- [v6.2.0 신규 기능: 은퇴 관제탑] ---
+# --- [v6.2.1 신규 전략 로직: 은퇴 관제탑 - 입력/수정/삭제 포함] ---
 if strat_mode == "🏦 은퇴 관제탑":
     st.header("🏦 은퇴 관제탑 (Control Tower)")
     df_ms = load_data_safe("Milestones")
     df_ta = load_data_safe("TotalAssets")
     
-    t_ms, t_ta = st.tabs(["🎯 마일스톤", "📊 통합 자산 리포트"])
+    t_ms, t_ta, t_in = st.tabs(["🎯 마일스톤 관리", "📊 통합 자산 리포트", "📝 데이터 입력/수정"])
     
     with t_ms:
-        st.subheader("은퇴 전 주요 마일스톤 리스트")
+        st.subheader("🎯 마일스톤 현황 및 관리")
         if not df_ms.empty:
             for i, row in df_ms.iterrows():
                 icon = "✅" if str(row['status']).strip() == "완료" else "⏳"
-                st.write(f"{icon} **{row['d_day_target']}**: {row['task']} ({row['category']})")
-                if pd.notnull(row['memo']): st.caption(f"💡 메모: {row['memo']}")
+                with st.expander(f"{icon} {row['d_day_target']} | {row['task']}"):
+                    c1, c2 = st.columns([3, 1])
+                    c1.write(f"**카테고리:** {row['category']}")
+                    c1.write(f"**상세메모:** {row['memo'] if pd.notnull(row['memo']) else '-'}")
+                    if c2.button("상태변경", key=f"ms_sw_{i}"):
+                        df_ms.at[i, 'status'] = "진행중" if str(row['status']).strip() == "완료" else "완료"
+                        conn.update(worksheet="Milestones", data=df_ms); st.rerun()
+                    if c2.button("마일스톤 삭제", key=f"ms_dl_{i}"):
+                        conn.update(worksheet="Milestones", data=df_ms.drop(i)); st.rerun()
         else:
-            st.info("Milestones 탭에 데이터를 입력해 주세요.")
+            st.info("입력 탭에서 마일스톤을 추가해 주세요.")
             
     with t_ta:
-        st.subheader("연금 + 개인자산 통합 추이")
         if not df_ta.empty:
-            df_ta['date_dt'] = pd.to_datetime(df_ta['date'], format='%Y-%m', errors='coerce')
-            df_ta = df_ta.sort_values('date_dt')
+            # 상단 합계 표시
+            latest = df_ta.iloc[-1]
+            st.subheader(f"📊 {latest['date']} 통합 자산 요약")
+            c1, c2, c3 = st.columns(3)
+            c1.metric("통합 총자산", f"{int(latest['grand_total']):,}원")
+            c2.metric("연금자산", f"{int(latest['pension_total']):,}원")
+            c3.metric("개인자산", f"{int(latest['personal_total']):,}원")
+            
+            st.divider()
+            
+            # 최신 3개 데이터 그래프 (X축 포맷: 26-04-25)
+            df_ta['date_dt'] = pd.to_datetime(df_ta['date'], errors='coerce')
+            df_plot = df_ta.sort_values('date_dt').tail(3).copy()
+            df_plot['display_date'] = df_plot['date_dt'].dt.strftime('%y-%m-%d')
+            
             fig = go.Figure()
-            fig.add_trace(go.Scatter(x=df_ta['date'], y=df_ta['grand_total'], name='총자산', line=dict(color='gold', width=4)))
-            fig.add_trace(go.Bar(x=df_ta['date'], y=df_ta['pension_total'], name='연금자산'))
-            fig.add_trace(go.Bar(x=df_ta['date'], y=df_ta['personal_total'], name='개인자산'))
-            fig.update_layout(barmode='stack', height=450, xaxis=dict(type='category'))
+            fig.add_trace(go.Bar(x=df_plot['display_date'], y=df_plot['pension_total'], name='연금자산', marker_color='#1f77b4'))
+            fig.add_trace(go.Bar(x=df_plot['display_date'], y=df_plot['personal_total'], name='개인자산', marker_color='#ff7f0e'))
+            fig.add_trace(go.Scatter(x=df_plot['display_date'], y=df_plot['grand_total'], name='총자산', line=dict(color='gold', width=4)))
+            
+            fig.update_layout(barmode='stack', height=450, xaxis=dict(type='category'), title="최근 3개 데이터 자산 추이")
             st.plotly_chart(fig, use_container_width=True)
-            if pd.notnull(df_ta.iloc[-1]['insight']):
-                st.info(f"🔍 이번 달 인사이트: {df_ta.iloc[-1]['insight']}")
+            if pd.notnull(latest['insight']):
+                st.info(f"💡 이번 달 인사이트: {latest['insight']}")
         else:
-            st.info("TotalAssets 탭에 데이터를 입력해 주세요.")
+            st.info("자산 데이터를 입력해 주세요.")
 
-# --- [v6.2.0 신규 기능: 리밸런싱] ---
+    with t_in:
+        c1, c2 = st.columns(2)
+        with c1:
+            st.subheader("🎯 신규 마일스톤 등록")
+            with st.form("in_ms_tower"):
+                ms_d = st.text_input("D-Day (예: D-900)")
+                ms_t = st.text_input("할 일 제목")
+                ms_c = st.selectbox("분류", ["금융", "행정", "라이프", "자기계발"])
+                ms_m = st.text_area("상세 내용")
+                if st.form_submit_button("마일스톤 저장"):
+                    new_ms = pd.DataFrame([{"d_day_target": ms_d, "task": ms_t, "category": ms_c, "status": "진행중", "memo": ms_m}])
+                    conn.update(worksheet="Milestones", data=pd.concat([df_ms, new_ms], ignore_index=True)); st.rerun()
+        with c2:
+            st.subheader("💰 통합자산 기록 업데이트")
+            with st.form("in_ta_tower"):
+                ta_d = st.date_input("데이터 기준일", now_kst)
+                ta_p = st.number_input("연금자산 합계(원)", step=1000000)
+                ta_s = st.number_input("개인자산 합계(원)", step=1000000)
+                ta_i = st.text_area("인사이트 및 메모")
+                if st.form_submit_button("통합자산 데이터 저장"):
+                    new_ta = pd.DataFrame([{"date": str(ta_d), "pension_total": ta_p, "personal_total": ta_s, "grand_total": ta_p+ta_s, "insight": ta_i}])
+                    conn.update(worksheet="TotalAssets", data=pd.concat([df_ta.drop(columns=['date_dt','display_date'], errors='ignore'), new_ta], ignore_index=True)); st.rerun()
+
+# --- [v6.2.1 신규 전략 로직: 리밸런싱 관리] ---
 elif strat_mode == "🔄 리밸런싱":
     st.header("🔄 자산 리밸런싱 아카이브")
     df_reb = load_data_safe("Rebalancing")
-    st.info("💡 PM 원칙: 26년(70:30) → 27년(60:40) → 28년(50:50) 및 수익 100% 종목 배당주 전환")
+    st.info("💡26년(70:30) → 27년(60:40) → 28년(50:50), 29년 이후 배당 ETF, 마켓금리액티브 매수")
     
-    with st.form("new_reb_form"):
+    with st.form("reb_in_form_v2"):
         c1, c2 = st.columns(2)
-        r_date = c1.date_input("리밸런싱 날짜", now_kst)
+        r_date = c1.date_input("리밸런싱 실행 날짜", now_kst)
         r_strat = c1.text_input("현재 전략 비중 (예: 70:30)")
-        r_action = c2.text_area("매수/매도 내역 (수익률 100% 종목 처리 등)")
-        r_reason = st.text_area("판단 근거 및 인사이트")
+        r_action = c2.text_area("실행 내역 (매수/매도 상세)")
+        r_reason = st.text_area("리밸런싱 판단 근거")
         r_target = c2.text_input("조정 후 목표 비중")
-        if st.form_submit_button("리밸런싱 기록 저장"):
+        if st.form_submit_button("리밸런싱 내역 저장"):
             new_reb = pd.DataFrame([{"date": str(r_date), "strategy": r_strat, "action": r_action, "reason": r_reason, "target_ratio": r_target}])
-            conn.update(worksheet="Rebalancing", data=pd.concat([df_reb, new_reb], ignore_index=True))
-            st.success("리밸런싱 내역이 저장되었습니다.")
-            st.rerun()
+            conn.update(worksheet="Rebalancing", data=pd.concat([df_reb, new_reb], ignore_index=True)); st.rerun()
             
     if not df_reb.empty:
         st.divider()
         for i, row in df_reb.iloc[::-1].iterrows():
-            with st.expander(f"📅 {row['date']} 리밸런싱"):
-                st.write(f"**전략:** {row['strategy']} → **목표:** {row['target_ratio']}")
-                st.write(f"**실행:** {row['action']}")
-                st.caption(f"근거: {row['reason']}")
+            with st.expander(f"📅 {row['date']} 리밸런싱 실행 기록"):
+                st.write(f"**전략 비중:** {row['strategy']} → **목표 비중:** {row['target_ratio']}")
+                st.write(f"**상세 액션:** {row['action']}")
+                st.caption(f"**판단 근거:** {row['reason']}")
+                if st.button("내역 삭제", key=f"reb_del_btn_{i}"):
+                    conn.update(worksheet="Rebalancing", data=df_reb.drop(i)); st.rerun()
 
 # --- [기존 모드: v6.1.2 코드 100% 유지] ---
 elif strat_mode == "일반 모드":
