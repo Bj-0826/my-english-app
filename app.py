@@ -13,7 +13,7 @@ from io import StringIO
 # ==========================================
 # 1. 앱 기본 설정 및 환경 변수
 # ==========================================
-st.set_page_config(page_title="은퇴 준비하기 v6.2.1", layout="wide")
+st.set_page_config(page_title="은퇴 준비하기 v6.2.2", layout="wide")
 
 # 한국 표준시(KST) 보정 및 D-Day 계산
 KST = timezone(timedelta(hours=9))
@@ -360,7 +360,13 @@ elif strat_mode == "일반 모드":
                             hoverinfo='text'
                         ))
 
-                    # 각 월의 총합을 막대 상단에 표시
+                    # Y축: 억원 단위 (annotation 텍스트 잘림 방지를 위해 여유 1.3배)
+                    max_y = m_total.max() * 1.3 if m_total.max() > 0 else 1e9
+                    tick_step = 1e8  # 1억 단위
+                    tick_vals = list(range(0, int(max_y) + int(tick_step), int(tick_step)))
+                    tick_texts = [f"{int(v / 1e8)}억" for v in tick_vals]
+
+                    # 각 월의 총합을 막대 상단에 표시 (Y축 범위 설정 이후에 annotation 추가)
                     for i, (label, dt) in enumerate(zip(recent_labels, recent_dt)):
                         total_val = m_total.iloc[i] if i < len(m_total) else 0
                         fig.add_annotation(
@@ -368,26 +374,24 @@ elif strat_mode == "일반 모드":
                             y=total_val,
                             text=f"<b>{int(total_val):,}원</b>",
                             showarrow=False,
-                            yshift=10,
-                            font=dict(size=11, color="white"),
-                            xanchor='center'
+                            yshift=14,
+                            font=dict(size=12, color="#333333"),
+                            bgcolor="rgba(255,255,255,0.85)",
+                            borderpad=3,
+                            xanchor='center',
+                            yanchor='bottom'
                         )
-
-                    # Y축: 억원 단위
-                    max_y = m_total.max() * 1.2 if m_total.max() > 0 else 1e9
-                    tick_step = 1e8  # 1억 단위
-                    tick_vals = list(range(0, int(max_y) + int(tick_step), int(tick_step)))
-                    tick_texts = [f"{int(v / 1e8)}억" for v in tick_vals]
 
                     fig.update_layout(
                         barmode='stack',
-                        height=480,
+                        height=500,
                         xaxis=dict(type='category'),
                         yaxis=dict(
                             tickvals=tick_vals,
                             ticktext=tick_texts,
+                            range=[0, max_y],
                         ),
-                        margin=dict(l=20, r=20, t=40, b=20),
+                        margin=dict(l=20, r=20, t=50, b=20),
                         legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1)
                     )
                     st.plotly_chart(fig, use_container_width=True)
@@ -666,21 +670,8 @@ elif strat_mode == "일반 모드":
                             hoverinfo='text'
                         ))
 
-                    # 각 주차 막대 상단에 총금액 표시
-                    for i, (label, wk) in enumerate(zip(recent_labels, recent)):
-                        total_val = w_total.iloc[i] if i < len(w_total) else 0
-                        fig.add_annotation(
-                            x=label,
-                            y=total_val,
-                            text=f"<b>{int(total_val):,}원</b>",
-                            showarrow=False,
-                            yshift=10,
-                            font=dict(size=11, color="white"),
-                            xanchor='center'
-                        )
-
-                    # Y축: 억원 단위
-                    max_y_per = w_total.max() * 1.25 if w_total.max() > 0 else 1e8
+                    # Y축: 억원 단위 (annotation 잘림 방지를 위해 여유 1.3배)
+                    max_y_per = w_total.max() * 1.3 if w_total.max() > 0 else 1e8
                     tick_step_per = 5e7  # 5천만 단위 기본
                     if max_y_per > 5e8:
                         tick_step_per = 1e8  # 1억 단위
@@ -700,15 +691,32 @@ elif strat_mode == "일반 모드":
                             baek_v = v / 1e7
                             tick_texts_per.append(f"{baek_v:.0f}천만")
 
+                    # 각 주차 막대 상단에 총금액 표시 (Y축 설정 이후)
+                    for i, (label, wk) in enumerate(zip(recent_labels, recent)):
+                        total_val = w_total.iloc[i] if i < len(w_total) else 0
+                        fig.add_annotation(
+                            x=label,
+                            y=total_val,
+                            text=f"<b>{int(total_val):,}원</b>",
+                            showarrow=False,
+                            yshift=14,
+                            font=dict(size=12, color="#333333"),
+                            bgcolor="rgba(255,255,255,0.85)",
+                            borderpad=3,
+                            xanchor='center',
+                            yanchor='bottom'
+                        )
+
                     fig.update_layout(
                         barmode='stack',
-                        height=480,
+                        height=500,
                         xaxis=dict(type='category'),
                         yaxis=dict(
                             tickvals=tick_vals_per,
                             ticktext=tick_texts_per,
+                            range=[0, max_y_per],
                         ),
-                        margin=dict(l=20, r=20, t=40, b=20),
+                        margin=dict(l=20, r=20, t=50, b=20),
                         legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1)
                     )
                     st.plotly_chart(fig, use_container_width=True)
