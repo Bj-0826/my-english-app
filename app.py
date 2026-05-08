@@ -13,7 +13,7 @@ from io import StringIO
 # ==========================================
 # 1. 앱 기본 설정 및 환경 변수
 # ==========================================
-st.set_page_config(page_title="은퇴 준비하기 v6.2.3", layout="wide")
+st.set_page_config(page_title="은퇴 준비하기 v6.2.4", layout="wide")
 
 # 한국 표준시(KST) 보정 및 D-Day 계산
 KST = timezone(timedelta(hours=9))
@@ -177,7 +177,7 @@ def get_month_weeks(year, month):
 # ==========================================
 
 with st.sidebar:
-    st.title("은퇴 준비하기 v6.2.3")
+    st.title("은퇴 준비하기 v6.2.4")
 
     # 상단 전략 모드 선택
     st.subheader("🚀 핵심 전략")
@@ -232,92 +232,111 @@ if strat_mode == "🏦 은퇴 관제탑":
 
     with t_ta:
         if not df_ta.empty:
-            latest = df_ta.iloc[-1]
-            st.subheader(f"📊 {latest['date']} 통합 자산 요약")
-            c1, c2, c3 = st.columns(3)
-            c1.metric("통합 총자산", f"{int(latest['grand_total']):,}원")
-            c2.metric("연금자산", f"{int(latest['pension_total']):,}원")
-            c3.metric("개인자산", f"{int(latest['personal_total']):,}원")
+            # ── [핵심 수정] date 파싱 강화 ──
+            # load_data_safe()에서 .str.upper()가 적용되어 있어 소문자로 원복 후 파싱
+            # infer_datetime_format=True로 다양한 포맷(2026-05-08, 2026/05/08 등) 자동 인식
+            df_ta['date_clean'] = df_ta['date'].astype(str).str.strip().str.lower()
+            df_ta['date_dt'] = pd.to_datetime(df_ta['date_clean'], infer_datetime_format=True, errors='coerce')
 
-            st.divider()
+            # 파싱 성공한 행만 추출 후 날짜 오름차순 정렬
+            df_ta_valid = df_ta.dropna(subset=['date_dt']).sort_values('date_dt').copy()
 
-            df_ta['date_dt'] = pd.to_datetime(df_ta['date'], errors='coerce')
-            df_plot = df_ta.dropna(subset=['date_dt']).sort_values('date_dt').tail(3).copy()
-            # X축 라벨: 26년 03월 형태
-            df_plot['display_date'] = df_plot['date_dt'].dt.strftime('%y년 %m월')
+            # 파싱 실패 시 원인 안내
+            failed_rows = df_ta[df_ta['date_dt'].isna()]
+            if not failed_rows.empty:
+                st.caption(f"⚠️ 날짜 파싱 실패 {len(failed_rows)}행 → 원본값: {failed_rows['date'].tolist()}")
 
-            fig_ct = go.Figure()
+            if df_ta_valid.empty:
+                st.warning("날짜 파싱에 실패했습니다. TotalAssets 시트의 date 컬럼 형식(예: 2026-05-08)을 확인해주세요.")
+                st.dataframe(df_ta[['date', 'grand_total', 'pension_total', 'personal_total']])
+            else:
+                # 가장 최신 행 (정렬 기반으로 안전하게)
+                latest = df_ta_valid.iloc[-1]
+                st.subheader(f"📊 {latest['date_clean']} 통합 자산 요약")
+                c1, c2, c3 = st.columns(3)
+                c1.metric("통합 총자산", f"{int(latest['grand_total']):,}원")
+                c2.metric("연금자산", f"{int(latest['pension_total']):,}원")
+                c3.metric("개인자산", f"{int(latest['personal_total']):,}원")
 
-            # 스택 막대: 연금자산 + 개인자산
-            fig_ct.add_trace(go.Bar(
-                x=df_plot['display_date'],
-                y=df_plot['pension_total'],
-                name='연금자산',
-                marker_color='#1f77b4',
-                hovertemplate='연금자산: %{customdata}억원<extra></extra>',
-                customdata=[round(v / 1e8, 1) for v in df_plot['pension_total']]
-            ))
-            fig_ct.add_trace(go.Bar(
-                x=df_plot['display_date'],
-                y=df_plot['personal_total'],
-                name='개인자산',
-                marker_color='#ff7f0e',
-                hovertemplate='개인자산: %{customdata}억원<extra></extra>',
-                customdata=[round(v / 1e8, 1) for v in df_plot['personal_total']]
-            ))
-            # 꺾은선: 통합 총자산
-            fig_ct.add_trace(go.Scatter(
-                x=df_plot['display_date'],
-                y=df_plot['grand_total'],
-                name='통합총자산',
-                mode='lines+markers',
-                line=dict(color='gold', width=4),
-                marker=dict(size=8),
-                hovertemplate='총자산: %{customdata}억원<extra></extra>',
-                customdata=[round(v / 1e8, 1) for v in df_plot['grand_total']]
-            ))
+                st.divider()
 
-            # 막대 상단에 통합총자산 금액 annotation
-            max_ct = df_plot['grand_total'].max() * 1.3 if not df_plot.empty else 1e9
-            for _, row in df_plot.iterrows():
-                fig_ct.add_annotation(
-                    x=row['display_date'],
-                    y=row['grand_total'],
-                    text=f"<b>{int(row['grand_total']):,}원</b>",
-                    showarrow=False,
-                    yshift=14,
-                    font=dict(size=11, color="#333333"),
-                    bgcolor="rgba(255,255,255,0.85)",
-                    borderpad=3,
-                    xanchor='center',
-                    yanchor='bottom'
+                # 최근 3개 데이터
+                df_plot = df_ta_valid.tail(3).copy()
+                df_plot['display_date'] = df_plot['date_dt'].dt.strftime('%y년 %m월')
+
+                fig_ct = go.Figure()
+
+                # 스택 막대: 연금자산 + 개인자산
+                fig_ct.add_trace(go.Bar(
+                    x=df_plot['display_date'],
+                    y=df_plot['pension_total'],
+                    name='연금자산',
+                    marker_color='#1f77b4',
+                    hovertemplate='연금자산: %{customdata}억원<extra></extra>',
+                    customdata=[round(v / 1e8, 1) for v in df_plot['pension_total']]
+                ))
+                fig_ct.add_trace(go.Bar(
+                    x=df_plot['display_date'],
+                    y=df_plot['personal_total'],
+                    name='개인자산',
+                    marker_color='#ff7f0e',
+                    hovertemplate='개인자산: %{customdata}억원<extra></extra>',
+                    customdata=[round(v / 1e8, 1) for v in df_plot['personal_total']]
+                ))
+                # 꺾은선: 통합 총자산
+                fig_ct.add_trace(go.Scatter(
+                    x=df_plot['display_date'],
+                    y=df_plot['grand_total'],
+                    name='통합총자산',
+                    mode='lines+markers',
+                    line=dict(color='gold', width=4),
+                    marker=dict(size=8),
+                    hovertemplate='총자산: %{customdata}억원<extra></extra>',
+                    customdata=[round(v / 1e8, 1) for v in df_plot['grand_total']]
+                ))
+
+                # 막대 상단에 통합총자산 금액 annotation
+                max_ct = df_plot['grand_total'].max() * 1.3 if not df_plot.empty else 1e9
+                for _, row in df_plot.iterrows():
+                    fig_ct.add_annotation(
+                        x=row['display_date'],
+                        y=row['grand_total'],
+                        text=f"<b>{int(row['grand_total']):,}원</b>",
+                        showarrow=False,
+                        yshift=14,
+                        font=dict(size=11, color="#333333"),
+                        bgcolor="rgba(255,255,255,0.85)",
+                        borderpad=3,
+                        xanchor='center',
+                        yanchor='bottom'
+                    )
+
+                # Y축: 억원 단위
+                tick_step_ct = 1e8
+                if max_ct > 20e8:
+                    tick_step_ct = 5e8
+                elif max_ct > 10e8:
+                    tick_step_ct = 2e8
+                tick_vals_ct = list(range(0, int(max_ct) + int(tick_step_ct), int(tick_step_ct)))
+                tick_texts_ct = [f"{int(v / 1e8)}억" for v in tick_vals_ct]
+
+                fig_ct.update_layout(
+                    barmode='stack',
+                    height=500,
+                    title="최근 3개월 데이터 자산 추이",
+                    xaxis=dict(type='category'),
+                    yaxis=dict(
+                        tickvals=tick_vals_ct,
+                        ticktext=tick_texts_ct,
+                        range=[0, max_ct],
+                    ),
+                    margin=dict(l=20, r=20, t=50, b=20),
+                    legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1)
                 )
+                st.plotly_chart(fig_ct, use_container_width=True)
 
-            # Y축: 억원 단위
-            tick_step_ct = 1e8
-            if max_ct > 20e8:
-                tick_step_ct = 5e8
-            elif max_ct > 10e8:
-                tick_step_ct = 2e8
-            tick_vals_ct = list(range(0, int(max_ct) + int(tick_step_ct), int(tick_step_ct)))
-            tick_texts_ct = [f"{int(v / 1e8)}억" for v in tick_vals_ct]
-
-            fig_ct.update_layout(
-                barmode='stack',
-                height=500,
-                title="최근 3개월 데이터 자산 추이",
-                xaxis=dict(type='category'),
-                yaxis=dict(
-                    tickvals=tick_vals_ct,
-                    ticktext=tick_texts_ct,
-                    range=[0, max_ct],
-                ),
-                margin=dict(l=20, r=20, t=50, b=20),
-                legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1)
-            )
-            st.plotly_chart(fig_ct, use_container_width=True)
-            if pd.notnull(latest['insight']):
-                st.info(f"💡 이번 달 인사이트: {latest['insight']}")
+                if pd.notnull(latest.get('insight', None)):
+                    st.info(f"💡 이번 달 인사이트: {latest['insight']}")
         else:
             st.info("자산 데이터를 입력해 주세요.")
 
