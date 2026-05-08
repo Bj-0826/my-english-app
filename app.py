@@ -13,7 +13,7 @@ from io import StringIO
 # ==========================================
 # 1. 앱 기본 설정 및 환경 변수
 # ==========================================
-st.set_page_config(page_title="은퇴 준비하기 v6.2.2", layout="wide")
+st.set_page_config(page_title="은퇴 준비하기 v6.2.3", layout="wide")
 
 # 한국 표준시(KST) 보정 및 D-Day 계산
 KST = timezone(timedelta(hours=9))
@@ -242,16 +242,80 @@ if strat_mode == "🏦 은퇴 관제탑":
             st.divider()
 
             df_ta['date_dt'] = pd.to_datetime(df_ta['date'], errors='coerce')
-            df_plot = df_ta.sort_values('date_dt').tail(3).copy()
-            df_plot['display_date'] = df_plot['date_dt'].dt.strftime('%y-%m-%d')
+            df_plot = df_ta.dropna(subset=['date_dt']).sort_values('date_dt').tail(3).copy()
+            # X축 라벨: 26년 03월 형태
+            df_plot['display_date'] = df_plot['date_dt'].dt.strftime('%y년 %m월')
 
-            fig = go.Figure()
-            fig.add_trace(go.Bar(x=df_plot['display_date'], y=df_plot['pension_total'], name='연금자산', marker_color='#1f77b4'))
-            fig.add_trace(go.Bar(x=df_plot['display_date'], y=df_plot['personal_total'], name='개인자산', marker_color='#ff7f0e'))
-            fig.add_trace(go.Scatter(x=df_plot['display_date'], y=df_plot['grand_total'], name='총자산', line=dict(color='gold', width=4)))
+            fig_ct = go.Figure()
 
-            fig.update_layout(barmode='stack', height=450, xaxis=dict(type='category'), title="최근 3개 데이터 자산 추이")
-            st.plotly_chart(fig, use_container_width=True)
+            # 스택 막대: 연금자산 + 개인자산
+            fig_ct.add_trace(go.Bar(
+                x=df_plot['display_date'],
+                y=df_plot['pension_total'],
+                name='연금자산',
+                marker_color='#1f77b4',
+                hovertemplate='연금자산: %{customdata}억원<extra></extra>',
+                customdata=[round(v / 1e8, 1) for v in df_plot['pension_total']]
+            ))
+            fig_ct.add_trace(go.Bar(
+                x=df_plot['display_date'],
+                y=df_plot['personal_total'],
+                name='개인자산',
+                marker_color='#ff7f0e',
+                hovertemplate='개인자산: %{customdata}억원<extra></extra>',
+                customdata=[round(v / 1e8, 1) for v in df_plot['personal_total']]
+            ))
+            # 꺾은선: 통합 총자산
+            fig_ct.add_trace(go.Scatter(
+                x=df_plot['display_date'],
+                y=df_plot['grand_total'],
+                name='통합총자산',
+                mode='lines+markers',
+                line=dict(color='gold', width=4),
+                marker=dict(size=8),
+                hovertemplate='총자산: %{customdata}억원<extra></extra>',
+                customdata=[round(v / 1e8, 1) for v in df_plot['grand_total']]
+            ))
+
+            # 막대 상단에 통합총자산 금액 annotation
+            max_ct = df_plot['grand_total'].max() * 1.3 if not df_plot.empty else 1e9
+            for _, row in df_plot.iterrows():
+                fig_ct.add_annotation(
+                    x=row['display_date'],
+                    y=row['grand_total'],
+                    text=f"<b>{int(row['grand_total']):,}원</b>",
+                    showarrow=False,
+                    yshift=14,
+                    font=dict(size=11, color="#333333"),
+                    bgcolor="rgba(255,255,255,0.85)",
+                    borderpad=3,
+                    xanchor='center',
+                    yanchor='bottom'
+                )
+
+            # Y축: 억원 단위
+            tick_step_ct = 1e8
+            if max_ct > 20e8:
+                tick_step_ct = 5e8
+            elif max_ct > 10e8:
+                tick_step_ct = 2e8
+            tick_vals_ct = list(range(0, int(max_ct) + int(tick_step_ct), int(tick_step_ct)))
+            tick_texts_ct = [f"{int(v / 1e8)}억" for v in tick_vals_ct]
+
+            fig_ct.update_layout(
+                barmode='stack',
+                height=500,
+                title="최근 3개월 데이터 자산 추이",
+                xaxis=dict(type='category'),
+                yaxis=dict(
+                    tickvals=tick_vals_ct,
+                    ticktext=tick_texts_ct,
+                    range=[0, max_ct],
+                ),
+                margin=dict(l=20, r=20, t=50, b=20),
+                legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1)
+            )
+            st.plotly_chart(fig_ct, use_container_width=True)
             if pd.notnull(latest['insight']):
                 st.info(f"💡 이번 달 인사이트: {latest['insight']}")
         else:
