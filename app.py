@@ -13,7 +13,7 @@ from io import StringIO
 # ==========================================
 # 1. 앱 기본 설정 및 환경 변수
 # ==========================================
-st.set_page_config(page_title="은퇴 준비하기 v6.2.4", layout="wide")
+st.set_page_config(page_title="은퇴 준비하기 v6.2.3", layout="wide")
 
 # 한국 표준시(KST) 보정 및 D-Day 계산
 KST = timezone(timedelta(hours=9))
@@ -177,7 +177,7 @@ def get_month_weeks(year, month):
 # ==========================================
 
 with st.sidebar:
-    st.title("은퇴 준비하기 v6.2.4")
+    st.title("은퇴 준비하기 v6.2.3")
 
     # 상단 전략 모드 선택
     st.subheader("🚀 핵심 전략")
@@ -234,9 +234,9 @@ if strat_mode == "🏦 은퇴 관제탑":
         if not df_ta.empty:
             # ── [핵심 수정] date 파싱 강화 ──
             # load_data_safe()에서 .str.upper()가 적용되어 있어 소문자로 원복 후 파싱
-            # infer_datetime_format=True로 다양한 포맷(2026-05-08, 2026/05/08 등) 자동 인식
+            # pandas 2.x 호환: infer_datetime_format 제거, errors='coerce'로 다양한 포맷 대응
             df_ta['date_clean'] = df_ta['date'].astype(str).str.strip().str.lower()
-            df_ta['date_dt'] = pd.to_datetime(df_ta['date_clean'], infer_datetime_format=True, errors='coerce')
+            df_ta['date_dt'] = pd.to_datetime(df_ta['date_clean'], errors='coerce')
 
             # 파싱 성공한 행만 추출 후 날짜 오름차순 정렬
             df_ta_valid = df_ta.dropna(subset=['date_dt']).sort_values('date_dt').copy()
