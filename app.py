@@ -177,7 +177,7 @@ def get_month_weeks(year, month):
 # ==========================================
 
 with st.sidebar:
-    st.title("은퇴 준비하기 v6.2.1")
+    st.title("은퇴 준비하기 v6.2.3")
 
     # 상단 전략 모드 선택
     st.subheader("🚀 핵심 전략")
