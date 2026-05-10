@@ -10,25 +10,9 @@ import numpy as np
 from io import StringIO
 
 # ==========================================
-# 은퇴 준비하기 v6.3.0 버전에 추가된 3개 기능 상세 안내 by Claude (260509)
-# ① 목표 달성률 게이지 (은퇴 관제탑 → 통합 자산 리포트 탭 상단)
-# 목표 자산을 직접 입력하면 (기본값 15억) 현재 달성률 %를 게이지로 표시
-# 색상이 달성률에 따라 빨강(50% 미만) → 주황(80% 미만) → 초록(80% 이상)으로 변경
-# 현재 자산, 달성률, 남은 금액 3개 지표 동시 표시
-
-# ② 독서 목표 & 페이스 (도서관리 → 🎯 독서 목표 & 페이스 탭 신규 추가)
-# 연간 목표 권수 설정 → 달성률 게이지 + 연말 예상 완독 수 + 남은 월 페이스 자동 계산
-# 월별 독서 현황 바 차트 (목표 페이스 점선 표시, 달성 월은 초록색)
-# 장르별 독서 분포 파이 차트
-
-# ③ 월간 리포트 (뉴스저장 → 📋 월간 리포트 탭 신규 추가)
-# 조회 연/월 선택하면 5개 섹션을 한 페이지로 자동 집계
-# 자산 현황 (전월 대비 증감 포함) / 현금흐름 요약 (저축률 + 지출 TOP5) / 이달의 독서 / 이달의 여행 / 이달의 지식 큐레이션
-
 # 1. 앱 기본 설정 및 환경 변수
 # ==========================================
-
-st.set_page_config(page_title="은퇴 준비하기 v6.3.0", layout="wide")
+st.set_page_config(page_title="은퇴 준비하기 v6.4.0", layout="wide")
 
 KST = timezone(timedelta(hours=9))
 now_kst = datetime.datetime.now(KST).date()
@@ -139,14 +123,14 @@ def get_month_weeks(year, month):
 # ==========================================
 
 with st.sidebar:
-    st.title("은퇴 준비하기 v6.3.0")
+    st.title("은퇴 준비하기 v6.4.0")
     st.subheader("🚀 핵심 전략")
     strat_mode = st.selectbox("전략 모드 선택", ["일반 모드", "🏦 은퇴 관제탑", "🔄 리밸런싱"], index=0)
     st.divider()
     st.subheader("📋 전체 메뉴")
     menu_options = [
         "💰 연금자산", "📈 연금시뮬", "💸 현금흐름", "💵 개인자산",
-        "🔤 영어공부", "📚 도서관리", "✈️ 여행관리", "📓 다이어리", "📰 뉴스저장"
+        "🔤 영어공부", "📚 도서관리", "✈️ 여행관리", "📓 다이어리", "📰 뉴스저장", "📋 월간리포트"
     ]
     menu = st.radio("이동할 메뉴 선택", menu_options, label_visibility="collapsed")
     st.divider()
@@ -1132,170 +1116,168 @@ elif strat_mode == "일반 모드":
                                 st.rerun()
 
     # =========================================================
-    # [9. 뉴스저장] ── [신규 기능 3] 월간 리포트 탭 추가
+    # [9. 뉴스저장]
     # =========================================================
     elif menu == "📰 뉴스저장":
         st.header("📰 지식 큐레이션 (뉴스 & 아티클)")
         df_media = load_data_safe("Media")
 
-        media_t1, media_t2 = st.tabs(["📰 뉴스 저장/관리", "📋 월간 리포트"])
+        with st.form("media_form", clear_on_submit=True):
+            m_title   = st.text_input("아티클 제목")
+            m_url     = st.text_input("URL 링크")
+            m_insight = st.text_area("나의 인사이트")
+            if st.form_submit_button("지식 창고에 저장"):
+                new_media = pd.DataFrame([{'date': str(now_kst), 'category': '기타', 'title': m_title, 'url': m_url, 'insight': m_insight}])
+                conn.update(worksheet="Media", data=pd.concat([df_media, new_media], ignore_index=True))
+                st.rerun()
 
-        with media_t1:
-            with st.form("media_form", clear_on_submit=True):
-                m_title   = st.text_input("아티클 제목")
-                m_url     = st.text_input("URL 링크")
-                m_insight = st.text_area("나의 인사이트")
-                if st.form_submit_button("지식 창고에 저장"):
-                    new_media = pd.DataFrame([{'date': str(now_kst), 'category': '기타', 'title': m_title, 'url': m_url, 'insight': m_insight}])
-                    conn.update(worksheet="Media", data=pd.concat([df_media, new_media], ignore_index=True))
-                    st.rerun()
-
-            if not df_media.empty:
-                st.divider()
-                st.subheader("📝 저장된 지식 리스트")
-                for i, row in df_media.iloc[::-1].iterrows():
-                    with st.expander(f"{row['title']}"):
-                        with st.form(f"edit_media_{i}"):
-                            e_m_title   = st.text_input("제목 수정",     value=row['title'])
-                            e_m_url     = st.text_input("URL 수정",      value=row['url'])
-                            e_m_insight = st.text_area("인사이트 수정",  value=row['insight'])
-                            c1, c2 = st.columns(2)
-                            if c1.form_submit_button("💾 정보 업데이트"):
-                                df_media.at[i, 'title'], df_media.at[i, 'url'], df_media.at[i, 'insight'] = e_m_title, e_m_url, e_m_insight
-                                conn.update(worksheet="Media", data=df_media)
-                                st.rerun()
-                            if c2.form_submit_button("🗑️ 지식 삭제"):
-                                conn.update(worksheet="Media", data=df_media.drop(i))
-                                st.rerun()
-                        st.markdown(f"🔗 [기사 원문 읽기]({row['url']})")
-
-        # ── [신규 기능 3] 월간 리포트 탭 ──
-        with media_t2:
-            st.subheader("📋 월간 통합 리포트")
-            st.caption("각 메뉴의 데이터를 한 페이지로 자동 집계합니다.")
-
-            # 조회 월 선택
-            rp_c1, rp_c2 = st.columns(2)
-            rp_year  = rp_c1.selectbox("조회 연도", [2025, 2026, 2027, 2028], index=1, key="rp_year")
-            rp_month = rp_c2.selectbox("조회 월",   [f"{i:02d}" for i in range(1, 13)], index=now_kst.month - 1, key="rp_month")
-            rp_period = f"{rp_year}-{rp_month}"
-
+        if not df_media.empty:
             st.divider()
+            st.subheader("📝 저장된 지식 리스트")
+            for i, row in df_media.iloc[::-1].iterrows():
+                with st.expander(f"{row['title']}"):
+                    with st.form(f"edit_media_{i}"):
+                        e_m_title   = st.text_input("제목 수정",    value=row['title'])
+                        e_m_url     = st.text_input("URL 수정",     value=row['url'])
+                        e_m_insight = st.text_area("인사이트 수정", value=row['insight'])
+                        c1, c2 = st.columns(2)
+                        if c1.form_submit_button("💾 정보 업데이트"):
+                            df_media.at[i, 'title'], df_media.at[i, 'url'], df_media.at[i, 'insight'] = e_m_title, e_m_url, e_m_insight
+                            conn.update(worksheet="Media", data=df_media)
+                            st.rerun()
+                        if c2.form_submit_button("🗑️ 지식 삭제"):
+                            conn.update(worksheet="Media", data=df_media.drop(i))
+                            st.rerun()
+                    st.markdown(f"🔗 [기사 원문 읽기]({row['url']})")
 
-            # ── 섹션 1: 자산 현황 ──
-            st.markdown("### 💰 자산 현황")
-            df_ta_rp = load_data_safe("TotalAssets")
-            if not df_ta_rp.empty:
-                df_ta_rp['date_clean'] = df_ta_rp['date'].astype(str).str.strip().str.lower()
-                df_ta_rp['date_dt']    = pd.to_datetime(df_ta_rp['date_clean'], errors='coerce')
-                df_ta_rp_valid = df_ta_rp.dropna(subset=['date_dt']).sort_values('date_dt')
+    # =========================================================
+    # [10. 월간리포트] - 독립 메뉴
+    # =========================================================
+    elif menu == "📋 월간리포트":
+        st.header("📋 월간 통합 리포트")
+        st.caption("자산·현금흐름·독서·여행·뉴스를 한 페이지로 자동 집계합니다.")
 
-                # 해당 월 데이터 찾기
-                rp_month_data = df_ta_rp_valid[df_ta_rp_valid['date_dt'].dt.strftime('%Y-%m') == rp_period]
-                prev_month_dt = (datetime.date(rp_year, int(rp_month), 1) - timedelta(days=1))
-                prev_period   = prev_month_dt.strftime('%Y-%m')
-                rp_prev_data  = df_ta_rp_valid[df_ta_rp_valid['date_dt'].dt.strftime('%Y-%m') == prev_period]
+        rp_c1, rp_c2 = st.columns(2)
+        rp_year   = rp_c1.selectbox("조회 연도", [2025, 2026, 2027, 2028], index=1, key="rp_year")
+        rp_month  = rp_c2.selectbox("조회 월", [f"{i:02d}" for i in range(1, 13)], index=now_kst.month - 1, key="rp_month")
+        rp_period = f"{rp_year}-{rp_month}"
 
-                if not rp_month_data.empty:
-                    cur_row  = rp_month_data.iloc[-1]
-                    prev_row = rp_prev_data.iloc[-1] if not rp_prev_data.empty else None
+        st.divider()
 
-                    a1, a2, a3 = st.columns(3)
-                    a1.metric("통합 총자산", f"{int(cur_row['grand_total']):,}원",
-                              f"{int(cur_row['grand_total'] - prev_row['grand_total']):+,}원" if prev_row is not None else None)
-                    a2.metric("연금자산",   f"{int(cur_row['pension_total']):,}원",
-                              f"{int(cur_row['pension_total'] - prev_row['pension_total']):+,}원" if prev_row is not None else None)
-                    a3.metric("개인자산",   f"{int(cur_row['personal_total']):,}원",
-                              f"{int(cur_row['personal_total'] - prev_row['personal_total']):+,}원" if prev_row is not None else None)
-                    if pd.notnull(cur_row.get('insight', None)):
-                        st.info(f"💡 {rp_period} 인사이트: {cur_row['insight']}")
-                else:
-                    st.info(f"{rp_period} 자산 데이터가 없습니다.")
+        # ── 섹션 1: 자산 현황 ──
+        st.markdown("### 💰 자산 현황")
+        df_ta_rp = load_data_safe("TotalAssets")
+        if not df_ta_rp.empty:
+            df_ta_rp['date_clean'] = df_ta_rp['date'].astype(str).str.strip().str.lower()
+            df_ta_rp['date_dt']    = pd.to_datetime(df_ta_rp['date_clean'], errors='coerce')
+            df_ta_rp_valid = df_ta_rp.dropna(subset=['date_dt']).sort_values('date_dt')
+            rp_month_data  = df_ta_rp_valid[df_ta_rp_valid['date_dt'].dt.strftime('%Y-%m') == rp_period]
+            prev_month_dt  = (datetime.date(rp_year, int(rp_month), 1) - timedelta(days=1))
+            prev_period    = prev_month_dt.strftime('%Y-%m')
+            rp_prev_data   = df_ta_rp_valid[df_ta_rp_valid['date_dt'].dt.strftime('%Y-%m') == prev_period]
 
-            st.divider()
-
-            # ── 섹션 2: 현금흐름 요약 ──
-            st.markdown("### 💸 현금흐름 요약")
-            df_cf_rp = load_data_safe("CashFlow")
-            if not df_cf_rp.empty:
-                df_cf_rp['date_dt'] = pd.to_datetime(df_cf_rp['date'], errors='coerce')
-                rp_cf = df_cf_rp[df_cf_rp['date_dt'].dt.strftime('%Y-%m') == rp_period]
-
-                rp_income  = rp_cf[rp_cf['type'] == 'INCOME']['amount'].sum()
-                rp_expense = rp_cf[rp_cf['type'] == 'EXPENSE']['amount'].sum()
-                rp_net     = rp_income - rp_expense
-                rp_save_rate = (rp_net / rp_income * 100) if rp_income > 0 else 0
-
-                cf1, cf2, cf3, cf4 = st.columns(4)
-                cf1.metric("총 수입",  f"{int(rp_income):,}원")
-                cf2.metric("총 지출",  f"{int(rp_expense):,}원")
-                cf3.metric("순 수지",  f"{int(rp_net):,}원", delta_color="normal")
-                cf4.metric("저축률",   f"{rp_save_rate:.1f}%")
-
-                # 카테고리별 지출 TOP 5
-                if not rp_cf[rp_cf['type'] == 'EXPENSE'].empty:
-                    top5 = rp_cf[rp_cf['type'] == 'EXPENSE'].groupby('category')['amount'].sum().sort_values(ascending=False).head(5).reset_index()
-                    top5.columns = ['카테고리', '금액']
-                    top5['금액'] = top5['금액'].apply(lambda x: f"{int(x):,}원")
-                    st.caption("📊 지출 TOP 5 카테고리")
-                    st.table(top5)
+            if not rp_month_data.empty:
+                cur_row  = rp_month_data.iloc[-1]
+                prev_row = rp_prev_data.iloc[-1] if not rp_prev_data.empty else None
+                a1, a2, a3 = st.columns(3)
+                a1.metric("통합 총자산", f"{int(cur_row['grand_total']):,}원",
+                          f"{int(cur_row['grand_total'] - prev_row['grand_total']):+,}원" if prev_row is not None else None)
+                a2.metric("연금자산",   f"{int(cur_row['pension_total']):,}원",
+                          f"{int(cur_row['pension_total'] - prev_row['pension_total']):+,}원" if prev_row is not None else None)
+                a3.metric("개인자산",   f"{int(cur_row['personal_total']):,}원",
+                          f"{int(cur_row['personal_total'] - prev_row['personal_total']):+,}원" if prev_row is not None else None)
+                if pd.notnull(cur_row.get('insight', None)):
+                    st.info(f"💡 {rp_period} 인사이트: {cur_row['insight']}")
             else:
-                st.info(f"{rp_period} 현금흐름 데이터가 없습니다.")
+                st.info(f"{rp_period} 자산 데이터가 없습니다.")
+        else:
+            st.info("자산 데이터가 없습니다.")
 
-            st.divider()
+        st.divider()
 
-            # ── 섹션 3: 이달의 독서 ──
-            st.markdown("### 📚 이달의 독서")
-            df_bk_rp = load_data_safe("Books")
-            if not df_bk_rp.empty:
-                df_bk_rp['날짜_dt'] = pd.to_datetime(df_bk_rp['날짜'], errors='coerce')
-                rp_books = df_bk_rp[df_bk_rp['날짜_dt'].dt.strftime('%Y-%m') == rp_period]
-                if not rp_books.empty:
-                    bk1, bk2 = st.columns(2)
-                    bk1.metric("이달 완독", f"{len(rp_books)}권")
-                    bk2.metric("도서 지출", f"₩{int(rp_books['가격'].sum()):,}")
-                    st.table(rp_books[['날짜', '제목', '저자', '분류', '별점']].reset_index(drop=True))
-                else:
-                    st.info(f"{rp_period}에 기록된 도서가 없습니다.")
+        # ── 섹션 2: 현금흐름 요약 ──
+        st.markdown("### 💸 현금흐름 요약")
+        df_cf_rp = load_data_safe("CashFlow")
+        if not df_cf_rp.empty:
+            df_cf_rp['date_dt'] = pd.to_datetime(df_cf_rp['date'], errors='coerce')
+            rp_cf        = df_cf_rp[df_cf_rp['date_dt'].dt.strftime('%Y-%m') == rp_period]
+            rp_income    = rp_cf[rp_cf['type'] == 'INCOME']['amount'].sum()
+            rp_expense   = rp_cf[rp_cf['type'] == 'EXPENSE']['amount'].sum()
+            rp_net       = rp_income - rp_expense
+            rp_save_rate = (rp_net / rp_income * 100) if rp_income > 0 else 0
+            cf1, cf2, cf3, cf4 = st.columns(4)
+            cf1.metric("총 수입", f"{int(rp_income):,}원")
+            cf2.metric("총 지출", f"{int(rp_expense):,}원")
+            cf3.metric("순 수지", f"{int(rp_net):,}원")
+            cf4.metric("저축률",  f"{rp_save_rate:.1f}%")
+            if not rp_cf[rp_cf['type'] == 'EXPENSE'].empty:
+                top5 = rp_cf[rp_cf['type'] == 'EXPENSE'].groupby('category')['amount'].sum().sort_values(ascending=False).head(5).reset_index()
+                top5.columns = ['카테고리', '금액']
+                top5['금액'] = top5['금액'].apply(lambda x: f"{int(x):,}원")
+                st.caption("📊 지출 TOP 5 카테고리")
+                st.table(top5)
+        else:
+            st.info(f"{rp_period} 현금흐름 데이터가 없습니다.")
+
+        st.divider()
+
+        # ── 섹션 3: 이달의 독서 ──
+        st.markdown("### 📚 이달의 독서")
+        df_bk_rp = load_data_safe("Books")
+        if not df_bk_rp.empty:
+            df_bk_rp['날짜_dt'] = pd.to_datetime(df_bk_rp['날짜'], errors='coerce')
+            rp_books = df_bk_rp[df_bk_rp['날짜_dt'].dt.strftime('%Y-%m') == rp_period]
+            if not rp_books.empty:
+                bk1, bk2 = st.columns(2)
+                bk1.metric("이달 완독", f"{len(rp_books)}권")
+                bk2.metric("도서 지출", f"₩{int(rp_books['가격'].sum()):,}")
+                st.table(rp_books[['날짜', '제목', '저자', '분류', '별점']].reset_index(drop=True))
             else:
-                st.info("도서 데이터가 없습니다.")
+                st.info(f"{rp_period}에 기록된 도서가 없습니다.")
+        else:
+            st.info("도서 데이터가 없습니다.")
 
-            st.divider()
+        st.divider()
 
-            # ── 섹션 4: 이달의 여행 ──
-            st.markdown("### ✈️ 이달의 여행")
-            df_exp_rp  = load_data_safe("TravelExp")
-            df_dest_rp = load_data_safe("TravelDest")
-            if not df_exp_rp.empty:
-                df_exp_rp['date_dt'] = pd.to_datetime(df_exp_rp['date'], errors='coerce')
-                rp_travel = df_exp_rp[df_exp_rp['date_dt'].dt.strftime('%Y-%m') == rp_period]
-                if not rp_travel.empty:
-                    tr1, tr2 = st.columns(2)
-                    tr1.metric("여행 지출 합계", f"₩{int(rp_travel['amount'].sum()):,}")
-                    tr2.metric("지출 건수",       f"{len(rp_travel)}건")
-                    # 여행지명 매핑
-                    if not df_dest_rp.empty:
-                        dest_map = dict(zip(df_dest_rp['id'], df_dest_rp['name']))
-                        rp_travel = rp_travel.copy()
-                        rp_travel['여행지'] = rp_travel['dest_id'].map(dest_map).fillna('기타')
-                        st.table(rp_travel[['date', '여행지', 'item', 'category', 'amount']].rename(columns={'date': '날짜', 'item': '항목', 'category': '분류', 'amount': '금액'}).assign(금액=lambda x: x['금액'].apply(lambda v: f"₩{int(v):,}")).reset_index(drop=True))
-                else:
-                    st.info(f"{rp_period}에 기록된 여행 지출이 없습니다.")
+        # ── 섹션 4: 이달의 여행 ──
+        st.markdown("### ✈️ 이달의 여행")
+        df_exp_rp  = load_data_safe("TravelExp")
+        df_dest_rp = load_data_safe("TravelDest")
+        if not df_exp_rp.empty:
+            df_exp_rp['date_dt'] = pd.to_datetime(df_exp_rp['date'], errors='coerce')
+            rp_travel = df_exp_rp[df_exp_rp['date_dt'].dt.strftime('%Y-%m') == rp_period]
+            if not rp_travel.empty:
+                tr1, tr2 = st.columns(2)
+                tr1.metric("여행 지출 합계", f"₩{int(rp_travel['amount'].sum()):,}")
+                tr2.metric("지출 건수",       f"{len(rp_travel)}건")
+                if not df_dest_rp.empty:
+                    dest_map  = dict(zip(df_dest_rp['id'], df_dest_rp['name']))
+                    rp_travel = rp_travel.copy()
+                    rp_travel['여행지'] = rp_travel['dest_id'].map(dest_map).fillna('기타')
+                    st.table(
+                        rp_travel[['date', '여행지', 'item', 'category', 'amount']]
+                        .rename(columns={'date': '날짜', 'item': '항목', 'category': '분류', 'amount': '금액'})
+                        .assign(금액=lambda x: x['금액'].apply(lambda v: f"₩{int(v):,}"))
+                        .reset_index(drop=True)
+                    )
             else:
-                st.info("여행 지출 데이터가 없습니다.")
+                st.info(f"{rp_period}에 기록된 여행 지출이 없습니다.")
+        else:
+            st.info("여행 지출 데이터가 없습니다.")
 
-            st.divider()
+        st.divider()
 
-            # ── 섹션 5: 이달의 뉴스/아티클 ──
-            st.markdown("### 📰 이달의 지식 큐레이션")
-            if not df_media.empty:
-                df_media['date_dt'] = pd.to_datetime(df_media['date'], errors='coerce')
-                rp_media = df_media[df_media['date_dt'].dt.strftime('%Y-%m') == rp_period]
-                if not rp_media.empty:
-                    st.metric("저장 아티클", f"{len(rp_media)}개")
-                    for _, mrow in rp_media.iloc[::-1].iterrows():
-                        st.markdown(f"**{mrow['title']}** — {mrow['insight'][:80]}{'...' if len(str(mrow['insight'])) > 80 else ''} 🔗 [읽기]({mrow['url']})")
-                else:
-                    st.info(f"{rp_period}에 저장된 아티클이 없습니다.")
+        # ── 섹션 5: 이달의 뉴스/아티클 ──
+        st.markdown("### 📰 이달의 지식 큐레이션")
+        df_media_rp = load_data_safe("Media")
+        if not df_media_rp.empty:
+            df_media_rp['date_dt'] = pd.to_datetime(df_media_rp['date'], errors='coerce')
+            rp_media = df_media_rp[df_media_rp['date_dt'].dt.strftime('%Y-%m') == rp_period]
+            if not rp_media.empty:
+                st.metric("저장 아티클", f"{len(rp_media)}개")
+                for _, mrow in rp_media.iloc[::-1].iterrows():
+                    st.markdown(f"**{mrow['title']}** — {mrow['insight'][:80]}{'...' if len(str(mrow['insight'])) > 80 else ''} 🔗 [읽기]({mrow['url']})")
             else:
-                st.info("뉴스/아티클 데이터가 없습니다.")
+                st.info(f"{rp_period}에 저장된 아티클이 없습니다.")
+        else:
+            st.info("뉴스/아티클 데이터가 없습니다.")
