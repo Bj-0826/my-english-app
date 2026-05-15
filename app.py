@@ -12,7 +12,7 @@ from io import StringIO
 # ==========================================
 # 1. 앱 기본 설정 및 환경 변수
 # ==========================================
-st.set_page_config(page_title="은퇴 준비하기 v6.4.0", layout="wide")
+st.set_page_config(page_title="은퇴 준비하기 v6.4.1", layout="wide")
 
 KST = timezone(timedelta(hours=9))
 now_kst = datetime.datetime.now(KST).date()
@@ -123,7 +123,7 @@ def get_month_weeks(year, month):
 # ==========================================
 
 with st.sidebar:
-    st.title("은퇴 준비하기 v6.4.0")
+    st.title("은퇴 준비하기 v6.4.1")
     st.subheader("🚀 핵심 전략")
     strat_mode = st.selectbox("전략 모드 선택", ["일반 모드", "🏦 은퇴 관제탑", "🔄 리밸런싱"], index=0)
     st.divider()
@@ -755,20 +755,51 @@ elif strat_mode == "일반 모드":
 
         with t3:
             if not df_en.empty:
-                edit_list = df_en.apply(lambda x: f"[{x['date']}] {x['english']}", axis=1).tolist()
-                sel_en    = st.selectbox("수정할 문장 선택", options=edit_list)
-                en_idx    = df_en.index[edit_list.index(sel_en)]
-                with st.form("edit_en"):
-                    e_en = st.text_input("영어 수정", value=str(df_en.loc[en_idx, 'english']))
-                    e_ko = st.text_input("한글 수정", value=str(df_en.loc[en_idx, 'korean']))
-                    if st.form_submit_button("💾 문장 수정 저장"):
-                        df_en.at[en_idx, 'english'] = e_en
-                        df_en.at[en_idx, 'korean']  = e_ko
-                        conn.update(worksheet="Sheet1", data=df_en)
-                        st.rerun()
-                    if st.form_submit_button("🗑️ 문장 삭제"):
-                        conn.update(worksheet="Sheet1", data=df_en.drop(en_idx))
-                        st.rerun()
+                # ── 검색 필터 ──
+                sf1, sf2 = st.columns(2)
+                search_kw   = sf1.text_input("🔍 영어/한글 키워드 검색", placeholder="예: give up, 포기하다")
+                search_date = sf2.text_input("📅 날짜 검색", placeholder="예: 2026-05-07")
+
+                # 최신순 정렬
+                df_en_sorted = df_en.copy()
+                df_en_sorted['date_dt'] = pd.to_datetime(df_en_sorted['date'], errors='coerce')
+                df_en_sorted = df_en_sorted.sort_values('date_dt', ascending=False)
+
+                # 키워드 필터 적용
+                if search_kw.strip():
+                    kw = search_kw.strip().lower()
+                    df_en_sorted = df_en_sorted[
+                        df_en_sorted['english'].astype(str).str.lower().str.contains(kw, na=False) |
+                        df_en_sorted['korean'].astype(str).str.lower().str.contains(kw, na=False)
+                    ]
+                # 날짜 필터 적용
+                if search_date.strip():
+                    df_en_sorted = df_en_sorted[
+                        df_en_sorted['date'].astype(str).str.contains(search_date.strip(), na=False)
+                    ]
+
+                st.caption(f"검색 결과: {len(df_en_sorted)}개 문장")
+
+                if not df_en_sorted.empty:
+                    edit_list = df_en_sorted.apply(
+                        lambda x: f"[{x['date']}] {x['english']}", axis=1
+                    ).tolist()
+                    sel_en = st.selectbox("수정/삭제할 문장 선택 (최신순)", options=edit_list)
+                    en_idx = df_en_sorted.index[edit_list.index(sel_en)]
+
+                    with st.form("edit_en"):
+                        e_en = st.text_input("영어 수정", value=str(df_en.loc[en_idx, 'english']))
+                        e_ko = st.text_input("한글 수정", value=str(df_en.loc[en_idx, 'korean']))
+                        if st.form_submit_button("💾 문장 수정 저장"):
+                            df_en.at[en_idx, 'english'] = e_en
+                            df_en.at[en_idx, 'korean']  = e_ko
+                            conn.update(worksheet="Sheet1", data=df_en)
+                            st.rerun()
+                        if st.form_submit_button("🗑️ 문장 삭제"):
+                            conn.update(worksheet="Sheet1", data=df_en.drop(en_idx))
+                            st.rerun()
+                else:
+                    st.info("검색 조건에 맞는 문장이 없습니다.")
 
         with t4:
             unmem = df_en[df_en['memorized'] == False] if not df_en.empty else pd.DataFrame()
