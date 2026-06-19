@@ -439,28 +439,67 @@ elif strat_mode == "일반 모드":
     elif menu == "📈 연금시뮬":
         st.header("📈 은퇴 후 연금 마스터 시뮬레이터")
 
+        # ── 계좌별 기본값: 연금자산(Data) 시트 최신 데이터 우선 ──
+        df_p = load_data_safe("Data")
+        acc_defaults = {'퇴직연금': 348845206, 'IRP': 75381190, 'ISA': 95091287, '개인연금': 376318489}
+        if not df_p.empty and 'date' in df_p.columns and 'account' in df_p.columns:
+            df_p['date_dt'] = pd.to_datetime(df_p['date'], format='%Y-%m', errors='coerce')
+            latest_dt = df_p['date_dt'].max()
+            if pd.notnull(latest_dt):
+                latest_rows = df_p[df_p['date_dt'] == latest_dt]
+                for _, r in latest_rows.iterrows():
+                    if r['account'] in acc_defaults:
+                        acc_defaults[r['account']] = int(r['amount'])
+
+        def run_withdrawal_sim(bal_isa0, bal_pension0, bal_retire0, monthly_target, annual_div_amt,
+                                annual_return, inflation_rate, start_y, end_y,
+                                np_start, np_amt, use_np):
+            """4계좌 인출 순서 시뮬레이션 - 탭1/탭3에서 공통 사용"""
+            months = (end_y - start_y + 1) * 12
+            dates = pd.date_range(start=f"{start_y}-01-01", periods=months, freq='MS')
+            monthly_div = annual_div_amt / 12
+
+            acc_isa, acc_pension, acc_retire = bal_isa0, bal_pension0, bal_retire0
+            cur_target = monthly_target
+            depletion_month = None
+            history = []
+
+            for idx, d in enumerate(dates):
+                if d.month == 1 and idx > 0:
+                    cur_target *= (1 + inflation_rate)
+
+                np_active = use_np and d >= pd.Timestamp(np_start)
+                net_target = max(0, cur_target - np_amt) if np_active else cur_target
+                withdraw_needed = max(0, net_target - monthly_div)
+
+                acc_isa *= (1 + annual_return / 12)
+                acc_pension *= (1 + annual_return / 12)
+                acc_retire *= (1 + annual_return / 12)
+
+                remain = withdraw_needed
+                take = min(acc_isa, remain); acc_isa -= take; remain -= take
+                take = min(acc_pension, remain); acc_pension -= take; remain -= take
+                take = min(acc_retire, remain); acc_retire -= take; remain -= take
+
+                total_now = acc_isa + acc_pension + acc_retire
+                if total_now <= 0 and depletion_month is None:
+                    depletion_month = d
+
+                history.append({'날짜': d, 'ISA': acc_isa, '연금저축군': acc_pension,
+                                 '퇴직연금': acc_retire, '합계': total_now, '실인출액': withdraw_needed})
+
+            return pd.DataFrame(history), depletion_month
+
         tab1, tab2, tab3 = st.tabs(["📉 자산 인출 시뮬레이션", "🧭 인출 순서 & 세금 가이드", "🛡️ 은퇴 준비 점검 리포트"])
 
         # =====================================================
-        # TAB 1: 자산 인출 시뮬레이션 (계좌별 분리 + 분배금 입력)
+        # TAB 1: 자산 인출 시뮬레이션 (계좌별 분리 + 연 분배율 입력)
         # =====================================================
         with tab1:
             c1, c2 = st.columns([1, 2])
             with c1:
                 st.subheader("⚙️ 계좌별 잔액 설정")
-                st.caption("연금자산 메뉴의 최신 데이터가 기본값으로 채워집니다.")
-
-                # 연금자산 데이터에서 계좌별 최신 잔액 가져오기
-                df_p = load_data_safe("Data")
-                acc_defaults = {'퇴직연금': 348845206, 'IRP': 75381190, 'ISA': 95091287, '개인연금': 376318489}
-                if not df_p.empty and 'date' in df_p.columns and 'account' in df_p.columns:
-                    df_p['date_dt'] = pd.to_datetime(df_p['date'], format='%Y-%m', errors='coerce')
-                    latest_dt = df_p['date_dt'].max()
-                    if pd.notnull(latest_dt):
-                        latest_rows = df_p[df_p['date_dt'] == latest_dt]
-                        for _, r in latest_rows.iterrows():
-                            if r['account'] in acc_defaults:
-                                acc_defaults[r['account']] = int(r['amount'])
+                st.caption("연금자산 메뉴의 최신 데이터가 기본값으로 채워집니다. 여기서 수정하면 다른 탭에도 동일하게 반영됩니다.")
 
                 bal_retire = st.number_input("퇴직연금 잔액(원)", value=acc_defaults['퇴직연금'], step=1000000, key="bal_retire")
                 bal_personal = st.number_input("개인연금 잔액(원)", value=acc_defaults['개인연금'], step=1000000, key="bal_personal")
@@ -472,75 +511,34 @@ elif strat_mode == "일반 모드":
 
                 st.divider()
                 st.subheader("💰 인출/수익 조건")
-                monthly_withdraw_total = st.slider("월 희망 수령액 (만원, 국민연금 포함 전 총액)", 300, 1000, 500, 10) * 10000
-                monthly_dividend = st.slider("월 분배금/배당 수입 (만원)", 0, 200, 0, 5) * 10000
-                annual_return = st.slider("기대 연 수익률 (시세차익, %)", 0.0, 10.0, 3.0, 0.5) / 100
-                inflation_rate = st.slider("예상 물가 상승률 (%)", 0.0, 5.0, 2.0, 0.5) / 100
+                monthly_withdraw_total = st.slider(
+                    "월 희망 수령액 (만원, 국민연금 포함 전 총액)", 300, 1000, 500, 10, key="monthly_withdraw_total"
+                ) * 10000
+                dividend_pct = st.slider(
+                    "연 분배금/배당 수익률 (전체 연금성 자산 대비 %)", 0.0, 5.0, 0.0, 0.5, key="dividend_pct",
+                    help="연금성 자산 합계의 일정 %를 연간 분배금으로 가정합니다. 예: 2% 선택 시 8.96억의 2% = 약 1,792만원/년"
+                ) / 100
+                annual_return = st.slider("기대 연 수익률 (시세차익, %)", 0.0, 10.0, 3.0, 0.5, key="annual_return") / 100
+                inflation_rate = st.slider("예상 물가 상승률 (%)", 0.0, 5.0, 2.0, 0.5, key="inflation_rate") / 100
+
+                annual_dividend_amt = total_base * dividend_pct
+                st.caption(f"📌 연 분배금 예상액: **{annual_dividend_amt:,.0f}원** (월 평균 {annual_dividend_amt/12:,.0f}원)")
 
                 st.divider()
                 st.subheader("📅 기간 & 국민연금")
-                start_y = st.selectbox("시뮬레이션 시작 연도", range(2029, 2040), index=0)
-                end_y = st.selectbox("시뮬레이션 종료 연도", range(start_y + 1, 2075), index=25)
-                national_pension_start = st.date_input("국민연금 수령 시작일", datetime.date(2038, 8, 1))
-                national_pension_amt = st.number_input("국민연금 월 수령액(원)", value=1500000, step=100000)
-                use_national = st.checkbox("국민연금 수령 시점부터 인출액에서 자동 차감", value=True)
+                start_y = st.selectbox("시뮬레이션 시작 연도", range(2029, 2040), index=0, key="start_y")
+                end_y = st.selectbox("시뮬레이션 종료 연도", range(start_y + 1, 2075), index=25, key="end_y")
+                national_pension_start = st.date_input("국민연금 수령 시작일", datetime.date(2038, 8, 1), key="national_pension_start")
+                national_pension_amt = st.number_input("국민연금 월 수령액(원)", value=1500000, step=100000, key="national_pension_amt")
+                use_national = st.checkbox("국민연금 수령 시점부터 인출액에서 자동 차감", value=True, key="use_national")
 
             with c2:
-                # ── 인출 순서: ISA → 개인연금/IRP 원금 → 퇴직연금 → 개인연금/IRP 수익분 ──
-                # 단순화를 위해 개인연금+IRP를 "연금저축군"으로 묶어 순서 적용
-                months = (end_y - start_y + 1) * 12
-                dates = pd.date_range(start=f"{start_y}-01-01", periods=months, freq='MS')
-
-                acc_isa = bal_isa
-                acc_pension_group = bal_personal + bal_irp  # 연금저축/IRP 원금+수익 묶음
-                acc_retire = bal_retire
-
-                cur_withdraw_target = monthly_withdraw_total
-                history = []
-                depletion_month = None
-
-                for idx, d in enumerate(dates):
-                    # 연초 물가상승 반영 (인출 목표액 인상)
-                    if d.month == 1 and idx > 0:
-                        cur_withdraw_target *= (1 + inflation_rate)
-
-                    # 국민연금 차감
-                    np_active = use_national and d >= pd.Timestamp(national_pension_start)
-                    net_target = max(0, cur_withdraw_target - national_pension_amt) if np_active else cur_withdraw_target
-
-                    # 분배금으로 먼저 충당, 나머지만 자산 매도로 인출
-                    withdraw_needed = max(0, net_target - monthly_dividend)
-
-                    # 자산 증식 (분배금 제외 시세차익만 반영)
-                    acc_isa *= (1 + annual_return / 12)
-                    acc_pension_group *= (1 + annual_return / 12)
-                    acc_retire *= (1 + annual_return / 12)
-
-                    # 인출 순서: ISA → 연금저축군(개인연금+IRP) → 퇴직연금
-                    remain = withdraw_needed
-                    take_isa = min(acc_isa, remain)
-                    acc_isa -= take_isa
-                    remain -= take_isa
-
-                    take_pension = min(acc_pension_group, remain)
-                    acc_pension_group -= take_pension
-                    remain -= take_pension
-
-                    take_retire = min(acc_retire, remain)
-                    acc_retire -= take_retire
-                    remain -= take_retire
-
-                    total_now = acc_isa + acc_pension_group + acc_retire
-                    if total_now <= 0 and depletion_month is None:
-                        depletion_month = d
-
-                    history.append({
-                        '날짜': d, 'ISA': acc_isa, '연금저축군': acc_pension_group,
-                        '퇴직연금': acc_retire, '합계': total_now,
-                        '월인출목표': cur_withdraw_target, '실인출액': withdraw_needed
-                    })
-
-                sim_df = pd.DataFrame(history)
+                sim_df, depletion_month = run_withdrawal_sim(
+                    bal_isa, bal_personal + bal_irp, bal_retire,
+                    monthly_withdraw_total, annual_dividend_amt,
+                    annual_return, inflation_rate, start_y, end_y,
+                    national_pension_start, national_pension_amt, use_national
+                )
 
                 max_asset = sim_df['합계'].max() if not sim_df.empty else 1e9
                 tick_step_eok = 5e8 if max_asset > 20e8 else 2e8 if max_asset > 10e8 else 1e8
@@ -567,7 +565,6 @@ elif strat_mode == "일반 모드":
                     customdata=[round(v / 1e8, 2) for v in sim_df['ISA']]
                 ))
 
-                # 국민연금 시작 시점 표시선
                 if use_national:
                     fig_sim.add_vline(
                         x=pd.Timestamp(national_pension_start).timestamp() * 1000,
@@ -584,7 +581,6 @@ elif strat_mode == "일반 모드":
                 )
                 st.plotly_chart(fig_sim, use_container_width=True)
 
-                # ── 핵심 지표 카드 ──
                 m1, m2, m3 = st.columns(3)
                 if depletion_month is not None:
                     years_lasted = (depletion_month.year - start_y) + (depletion_month.month - 1) / 12
@@ -599,32 +595,21 @@ elif strat_mode == "일반 모드":
                 m3.metric(f"{end_y}년 말 잔액", f"{final_balance/1e8:.2f}억원")
 
         # =====================================================
-        # TAB 2: 인출 순서 & 세금 가이드 (실제 자산 적용)
+        # TAB 2: 인출 순서 & 세금 가이드 (탭1 session_state 값 그대로 사용)
         # =====================================================
         with tab2:
             st.subheader("🧭 내 자산 기준 인출 순서 시뮬레이션")
-            st.caption("아래 금액은 [자산 인출 시뮬레이션] 탭에서 입력한 계좌별 잔액을 그대로 반영합니다.")
+            st.caption("[자산 인출 시뮬레이션] 탭에서 입력한 계좌별 잔액을 실시간으로 반영합니다.")
 
-            df_p2 = load_data_safe("Data")
-            acc_defaults2 = {'퇴직연금': 348845206, 'IRP': 75381190, 'ISA': 95091287, '개인연금': 376318489}
-            if not df_p2.empty and 'date' in df_p2.columns and 'account' in df_p2.columns:
-                df_p2['date_dt'] = pd.to_datetime(df_p2['date'], format='%Y-%m', errors='coerce')
-                latest_dt2 = df_p2['date_dt'].max()
-                if pd.notnull(latest_dt2):
-                    latest_rows2 = df_p2[df_p2['date_dt'] == latest_dt2]
-                    for _, r in latest_rows2.iterrows():
-                        if r['account'] in acc_defaults2:
-                            acc_defaults2[r['account']] = int(r['amount'])
-
-            isa_bal = acc_defaults2['ISA']
-            pension_bal = acc_defaults2['개인연금'] + acc_defaults2['IRP']
-            retire_bal = acc_defaults2['퇴직연금']
+            isa_bal = st.session_state.get('bal_isa', bal_isa)
+            pension_bal = st.session_state.get('bal_personal', bal_personal) + st.session_state.get('bal_irp', bal_irp)
+            retire_bal = st.session_state.get('bal_retire', bal_retire)
             total_bal = isa_bal + pension_bal + retire_bal
 
             st.divider()
             order_steps = [
                 ("1단계", "ISA 자금", isa_bal, "비과세", "만기 시 수익 200만원까지 비과세, 초과분 9.9% 분리과세. 가장 먼저 사용해 세부담 최소화"),
-                ("2단계", "개인연금/IRP 원금", min(pension_bal, pension_bal), "비과세", "본인이 납입한 원금(세액공제 받지 않은 추가납입분)은 인출 시 비과세"),
+                ("2단계", "개인연금/IRP 원금", pension_bal, "비과세", "본인이 납입한 원금(세액공제 받지 않은 추가납입분)은 인출 시 비과세"),
                 ("3단계", "퇴직연금(퇴직금)", retire_bal, "퇴직소득세 30%↓", "연금으로 10년 이상 수령 시 퇴직소득세 30~40% 감면 혜택"),
                 ("4단계", "개인연금/IRP 수익+세액공제분", 0, "연금소득세 3.3~5.5%", "마지막에 수령. 연 1,500만원 한도 초과 시 종합과세 전환 주의"),
             ]
@@ -636,7 +621,8 @@ elif strat_mode == "일반 모드":
             st.divider()
             st.subheader("💰 연 1,500만원 한도 체크")
             annual_limit = 15000000
-            test_monthly = st.slider("월 사적연금 인출액 테스트(만원)", 100, 800, 350, 10) * 10000
+            default_test = int(st.session_state.get('monthly_withdraw_total', 5000000) / 10000)
+            test_monthly = st.slider("월 사적연금 인출액 테스트(만원)", 100, 800, min(max(default_test, 100), 800), 10) * 10000
             annual_withdraw = test_monthly * 12
             ratio = annual_withdraw / annual_limit * 100
 
@@ -654,70 +640,89 @@ elif strat_mode == "일반 모드":
             st.info("현재(2026년 기준) 사적연금 수령액은 건강보험 피부양자 자격 산정 소득에서 제외됩니다. 다만 제도 개편 가능성이 있어 매년 보건복지부 발표를 확인하는 것이 안전합니다.")
 
         # =====================================================
-        # TAB 3: 은퇴 준비 점검 리포트 (자동 진단)
+        # TAB 3: 은퇴 준비 점검 리포트 (탭1 session_state 값 그대로 사용)
         # =====================================================
         with tab3:
             st.subheader("🛡️ 내 데이터 기반 자동 진단")
-            st.caption("탭1에서 설정한 계좌 잔액과 인출 조건을 기준으로 자동 계산됩니다.")
+            st.caption("[자산 인출 시뮬레이션] 탭에서 입력한 계좌 잔액·인출 조건을 실시간으로 반영합니다.")
 
-            df_p3 = load_data_safe("Data")
-            acc3 = {'퇴직연금': 348845206, 'IRP': 75381190, 'ISA': 95091287, '개인연금': 376318489}
-            if not df_p3.empty and 'date' in df_p3.columns and 'account' in df_p3.columns:
-                df_p3['date_dt'] = pd.to_datetime(df_p3['date'], format='%Y-%m', errors='coerce')
-                latest_dt3 = df_p3['date_dt'].max()
-                if pd.notnull(latest_dt3):
-                    latest_rows3 = df_p3[df_p3['date_dt'] == latest_dt3]
-                    for _, r in latest_rows3.iterrows():
-                        if r['account'] in acc3:
-                            acc3[r['account']] = int(r['amount'])
-            total3 = sum(acc3.values())
+            # ── 탭1과 동일한 session_state 값 사용 (구글시트 재조회 없음) ──
+            r_isa = st.session_state.get('bal_isa', bal_isa)
+            r_personal = st.session_state.get('bal_personal', bal_personal)
+            r_irp = st.session_state.get('bal_irp', bal_irp)
+            r_retire = st.session_state.get('bal_retire', bal_retire)
+            total3 = r_isa + r_personal + r_irp + r_retire
+
+            r_monthly_target = st.session_state.get('monthly_withdraw_total', 5000000)
+            r_div_pct = st.session_state.get('dividend_pct', 0.0) / 100
+            r_annual_return = st.session_state.get('annual_return', 3.0) / 100
+            r_inflation = st.session_state.get('inflation_rate', 2.0) / 100
+            r_start_y = st.session_state.get('start_y', 2029)
+            r_end_y = st.session_state.get('end_y', 2054)
+            r_np_start = st.session_state.get('national_pension_start', datetime.date(2038, 8, 1))
+            r_np_amt = st.session_state.get('national_pension_amt', 1500000)
+            r_use_np = st.session_state.get('use_national', True)
+
+            st.caption(f"현재 반영된 총자산: **{total3:,}원 ({total3/1e8:.2f}억원)** · 목표 인출액: 월 {r_monthly_target/10000:,.0f}만원")
 
             # 4% 룰 진단
             st.markdown("### 📐 4% 안전 인출률 진단")
-            annual_withdraw_target = 5000000 * 12
+            annual_withdraw_target = r_monthly_target * 12
             safe_withdraw_amt = total3 * 0.04
             withdraw_ratio = (annual_withdraw_target / total3 * 100) if total3 > 0 else 0
 
             r1, r2, r3 = st.columns(3)
             r1.metric("현재 총자산", f"{total3/1e8:.2f}억원")
             r2.metric("4% 룰 권장 연 인출액", f"{safe_withdraw_amt/1e4:,.0f}만원")
-            r3.metric("희망 인출률(연 6천만원)", f"{withdraw_ratio:.1f}%",
+            r3.metric(f"희망 인출률(연 {annual_withdraw_target/1e8:.2f}억)", f"{withdraw_ratio:.1f}%",
                       "4% 이내 ✅" if withdraw_ratio <= 4.0 else "4% 초과 ⚠️")
 
             if withdraw_ratio <= 4.0:
-                st.success(f"✅ 월 500만원(연 6,000만원) 인출은 현재 자산 기준 {withdraw_ratio:.1f}%로, 4% 룰 안전 범위 내에 있습니다.")
+                st.success(f"✅ 월 {r_monthly_target/10000:,.0f}만원(연 {annual_withdraw_target/1e4:,.0f}만원) 인출은 현재 자산 기준 {withdraw_ratio:.1f}%로, 4% 룰 안전 범위 내에 있습니다.")
             else:
-                st.warning(f"⚠️ 월 500만원 인출 시 {withdraw_ratio:.1f}%로 4% 룰을 초과합니다. 국민연금 수령 전까지는 자산 소진 속도가 빠를 수 있어 분배금 확보나 인출액 조정을 고려하세요.")
+                st.warning(f"⚠️ 월 {r_monthly_target/10000:,.0f}만원 인출 시 {withdraw_ratio:.1f}%로 4% 룰을 초과합니다. 국민연금 수령 전까지는 자산 소진 속도가 빠를 수 있어 분배금 확보나 인출액 조정을 고려하세요.")
 
             st.divider()
 
-            # 국민연금 공백기 진단
+            # 국민연금 공백기 진단 (탭1 입력값 기준으로 동적 계산)
             st.markdown("### ⏳ 국민연금 공백기 대응 진단")
-            gap_start = datetime.date(2029, 1, 1)
-            gap_end = datetime.date(2038, 7, 31)
-            gap_months = (gap_end.year - gap_start.year) * 12 + (gap_end.month - gap_start.month) + 1
-            gap_total_needed = 5000000 * gap_months
+            gap_start = datetime.date(r_start_y, 1, 1)
+            gap_end = r_np_start - timedelta(days=1)
+            gap_months = max(0, (gap_end.year - gap_start.year) * 12 + (gap_end.month - gap_start.month) + 1)
+            gap_total_needed = r_monthly_target * gap_months
 
             g1, g2 = st.columns(2)
-            g1.metric("공백기 기간", f"{gap_months}개월 (약 {gap_months/12:.1f}년)", "2029.01 ~ 2038.07")
+            g1.metric("공백기 기간", f"{gap_months}개월 (약 {gap_months/12:.1f}년)",
+                      f"{gap_start.strftime('%Y.%m')} ~ {gap_end.strftime('%Y.%m')}")
             g2.metric("공백기 총 필요액(수익 미반영)", f"{gap_total_needed/1e8:.2f}억원")
 
-            coverage_ratio = (total3 / gap_total_needed * 100) if gap_total_needed > 0 else 0
+            coverage_ratio = (total3 / gap_total_needed * 100) if gap_total_needed > 0 else 100
             if coverage_ratio >= 100:
                 st.success(f"✅ 현재 자산({total3/1e8:.2f}억)만으로도 공백기 전체를 수익률 반영 없이 커버할 수 있는 수준({coverage_ratio:.0f}%)입니다. 실제로는 운용수익이 더해지므로 여유가 있습니다.")
             else:
                 st.info(f"💡 현재 자산은 공백기 필요액의 {coverage_ratio:.0f}% 수준입니다. 운용수익과 분배금을 더하면 충당 가능하니 [자산 인출 시뮬레이션] 탭에서 정확한 소진 시점을 확인하세요.")
 
+            # 실제 시뮬레이션 기반 소진 여부도 함께 표시 (탭1과 동일 로직)
+            r_annual_div_amt = total3 * r_div_pct
+            _, r_depletion = run_withdrawal_sim(
+                r_isa, r_personal + r_irp, r_retire, r_monthly_target, r_annual_div_amt,
+                r_annual_return, r_inflation, r_start_y, r_end_y, r_np_start, r_np_amt, r_use_np
+            )
+            if r_depletion is not None:
+                st.caption(f"📊 [자산 인출 시뮬레이션] 탭 조건(수익률 {r_annual_return*100:.1f}%, 물가 {r_inflation*100:.1f}%, 분배율 {r_div_pct*100:.1f}%) 적용 시 실제 소진 예상: **{r_depletion.strftime('%Y년 %m월')}**")
+            else:
+                st.caption(f"📊 [자산 인출 시뮬레이션] 탭 조건 적용 시 {r_end_y}년까지 자산이 소진되지 않습니다.")
+
             st.divider()
 
             # 현금 버퍼 진단
             st.markdown("### 🧯 현금성 자산 버퍼 점검")
-            buffer_needed = 5000000 * 24
+            buffer_needed = r_monthly_target * 24
             bc1, bc2 = st.columns(2)
             bc1.metric("권장 현금 버퍼(2년치)", f"{buffer_needed/1e8:.2f}억원")
-            bc2.metric("ISA 잔액으로 충당 가능 기간", f"{(acc3['ISA']/5000000):.1f}개월" if acc3['ISA'] > 0 else "0개월")
+            bc2.metric("ISA 잔액으로 충당 가능 기간", f"{(r_isa/r_monthly_target):.1f}개월" if r_monthly_target > 0 else "0개월")
 
-            st.info("💡 시장이 일시적으로 폭락할 때 위험자산을 매도해 인출하면 자산 회복이 불가능해질 수 있습니다. ISA 또는 예금·채권성 자산으로 2년치 생활비(약 1.2억원)를 별도 확보해두는 것을 권장합니다.")
+            st.info(f"💡 시장이 일시적으로 폭락할 때 위험자산을 매도해 인출하면 자산 회복이 불가능해질 수 있습니다. ISA 또는 예금·채권성 자산으로 2년치 생활비(약 {buffer_needed/1e8:.2f}억원)를 별도 확보해두는 것을 권장합니다.")
 
     # =========================================================
     # [3. 현금흐름]
