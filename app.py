@@ -511,15 +511,25 @@ elif strat_mode == "일반 모드":
 
                 st.divider()
                 st.subheader("💰 인출/수익 조건")
-                monthly_withdraw_total = st.slider(
-                    "월 희망 수령액 (만원, 국민연금 포함 전 총액)", 300, 1000, 500, 10, key="monthly_withdraw_total"
-                ) * 10000
-                dividend_pct = st.slider(
-                    "연 분배금/배당 수익률 (전체 연금성 자산 대비 %)", 0.0, 5.0, 0.0, 0.5, key="dividend_pct",
+                monthly_withdraw_manwon = st.slider(
+                    "월 희망 수령액 (만원, 국민연금 포함 전 총액)", 300, 1000, 500, 10, key="monthly_withdraw_manwon"
+                )
+                monthly_withdraw_total = monthly_withdraw_manwon * 10000
+                dividend_pct_raw = st.slider(
+                    "연 분배금/배당 수익률 (전체 연금성 자산 대비 %)", 0.0, 5.0, 0.0, 0.5, key="dividend_pct_raw",
                     help="연금성 자산 합계의 일정 %를 연간 분배금으로 가정합니다. 예: 2% 선택 시 8.96억의 2% = 약 1,792만원/년"
-                ) / 100
-                annual_return = st.slider("기대 연 수익률 (시세차익, %)", 0.0, 10.0, 3.0, 0.5, key="annual_return") / 100
-                inflation_rate = st.slider("예상 물가 상승률 (%)", 0.0, 5.0, 2.0, 0.5, key="inflation_rate") / 100
+                )
+                dividend_pct = dividend_pct_raw / 100
+                annual_return_raw = st.slider("기대 연 수익률 (시세차익, %)", 0.0, 10.0, 3.0, 0.5, key="annual_return_raw")
+                annual_return = annual_return_raw / 100
+                inflation_rate_raw = st.slider("예상 물가 상승률 (%)", 0.0, 5.0, 2.0, 0.5, key="inflation_rate_raw")
+                inflation_rate = inflation_rate_raw / 100
+
+                # ── 변환이 끝난 "최종값"을 별도 키로 저장 → 탭2/탭3는 이 키만 참조 ──
+                st.session_state['_final_monthly_withdraw_total'] = monthly_withdraw_total
+                st.session_state['_final_dividend_pct'] = dividend_pct
+                st.session_state['_final_annual_return'] = annual_return
+                st.session_state['_final_inflation_rate'] = inflation_rate
 
                 annual_dividend_amt = total_base * dividend_pct
                 st.caption(f"📌 연 분배금 예상액: **{annual_dividend_amt:,.0f}원** (월 평균 {annual_dividend_amt/12:,.0f}원)")
@@ -621,7 +631,7 @@ elif strat_mode == "일반 모드":
             st.divider()
             st.subheader("💰 연 1,500만원 한도 체크")
             annual_limit = 15000000
-            default_test = int(st.session_state.get('monthly_withdraw_total', 5000000) / 10000)
+            default_test = int(st.session_state.get('_final_monthly_withdraw_total', 5000000) / 10000)
             test_monthly = st.slider("월 사적연금 인출액 테스트(만원)", 100, 800, min(max(default_test, 100), 800), 10) * 10000
             annual_withdraw = test_monthly * 12
             ratio = annual_withdraw / annual_limit * 100
@@ -653,10 +663,10 @@ elif strat_mode == "일반 모드":
             r_retire = st.session_state.get('bal_retire', bal_retire)
             total3 = r_isa + r_personal + r_irp + r_retire
 
-            r_monthly_target = st.session_state.get('monthly_withdraw_total', 5000000)
-            r_div_pct = st.session_state.get('dividend_pct', 0.0) / 100
-            r_annual_return = st.session_state.get('annual_return', 3.0) / 100
-            r_inflation = st.session_state.get('inflation_rate', 2.0) / 100
+            r_monthly_target = st.session_state.get('_final_monthly_withdraw_total', 5000000)
+            r_div_pct = st.session_state.get('_final_dividend_pct', 0.0)
+            r_annual_return = st.session_state.get('_final_annual_return', 0.03)
+            r_inflation = st.session_state.get('_final_inflation_rate', 0.02)
             r_start_y = st.session_state.get('start_y', 2029)
             r_end_y = st.session_state.get('end_y', 2054)
             r_np_start = st.session_state.get('national_pension_start', datetime.date(2038, 8, 1))
@@ -715,14 +725,46 @@ elif strat_mode == "일반 모드":
 
             st.divider()
 
-            # 현금 버퍼 진단
+            # ── 현금 버퍼 진단: 직접 입력 + 추천 비중(%) 두 가지 방식 제공 ──
             st.markdown("### 🧯 현금성 자산 버퍼 점검")
-            buffer_needed = r_monthly_target * 24
-            bc1, bc2 = st.columns(2)
-            bc1.metric("권장 현금 버퍼(2년치)", f"{buffer_needed/1e8:.2f}억원")
-            bc2.metric("ISA 잔액으로 충당 가능 기간", f"{(r_isa/r_monthly_target):.1f}개월" if r_monthly_target > 0 else "0개월")
+            st.caption("시장 급락기에 위험자산을 팔지 않고도 버틸 수 있는 현금성 자산(예금·MMF·금리액티브 ETF 등) 규모를 점검합니다.")
 
-            st.info(f"💡 시장이 일시적으로 폭락할 때 위험자산을 매도해 인출하면 자산 회복이 불가능해질 수 있습니다. ISA 또는 예금·채권성 자산으로 2년치 생활비(약 {buffer_needed/1e8:.2f}억원)를 별도 확보해두는 것을 권장합니다.")
+            buf_mode = st.radio(
+                "현금 버퍼 산정 방식",
+                ["개월수로 계산 (예: 24개월)", "직접 금액 입력", "전체 자산 대비 비중(%) 추천"],
+                horizontal=True, key="buf_mode"
+            )
+
+            if buf_mode == "개월수로 계산 (예: 24개월)":
+                buf_months = st.slider("권장 버퍼 기간(개월)", 6, 36, 24, 6, key="buf_months_input")
+                buffer_needed = r_monthly_target * buf_months
+                buffer_desc = f"{buf_months}개월치 생활비"
+            elif buf_mode == "직접 금액 입력":
+                buffer_needed = st.number_input(
+                    "권장 현금 버퍼 직접 입력(원)", value=120000000, step=10000000, key="buf_amount_input"
+                )
+                buffer_desc = "직접 입력한 금액"
+            else:
+                buf_pct = st.slider("전체 자산 대비 현금성 자산 추천 비중(%)", 5, 30, 10, 1, key="buf_pct_input")
+                buffer_needed = total3 * (buf_pct / 100)
+                buffer_desc = f"전체 자산의 {buf_pct}%"
+
+            bc1, bc2, bc3 = st.columns(3)
+            bc1.metric("권장 현금 버퍼", f"{buffer_needed/1e8:.2f}억원", buffer_desc)
+
+            months_covered_isa = (r_isa / r_monthly_target) if r_monthly_target > 0 else 0
+            bc2.metric("ISA 잔액으로 충당 가능 기간", f"{months_covered_isa:.1f}개월")
+
+            buffer_gap = buffer_needed - r_isa
+            if buffer_gap > 0:
+                bc3.metric("ISA 대비 부족분", f"{buffer_gap/1e8:.2f}억원", "추가 확보 필요", delta_color="inverse")
+            else:
+                bc3.metric("ISA 대비 부족분", "충분 ✅", f"{abs(buffer_gap)/1e8:.2f}억원 여유")
+
+            if r_isa >= buffer_needed:
+                st.success(f"✅ ISA 잔액({r_isa/1e8:.2f}억)이 권장 현금 버퍼({buffer_needed/1e8:.2f}억) 이상이라 시장 급락기에도 위험자산을 매도하지 않고 버틸 수 있습니다.")
+            else:
+                st.info(f"💡 ISA만으로는 권장 버퍼({buffer_needed/1e8:.2f}억) 대비 {buffer_gap/1e8:.2f}억원이 부족합니다. 금리액티브 ETF, MMF, 예금 등 현금성 자산을 추가로 일부 배분하는 것을 검토해보세요. 시장이 일시적으로 폭락할 때 위험자산을 매도해 인출하면 자산 회복이 불가능해질 수 있습니다.")
 
     # =========================================================
     # [3. 현금흐름]
