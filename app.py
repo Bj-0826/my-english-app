@@ -12,7 +12,7 @@ from io import StringIO
 # ==========================================
 # 1. 앱 기본 설정 및 환경 변수
 # ==========================================
-st.set_page_config(page_title="은퇴 준비하기 v6.5.2", layout="wide")
+st.set_page_config(page_title="은퇴 준비하기 v6.5.3", layout="wide")
 
 KST = timezone(timedelta(hours=9))
 now_kst = datetime.datetime.now(KST).date()
@@ -147,11 +147,11 @@ def get_pension_account_defaults():
     return acc_defaults
 
 # ==========================================
-# 3. 사이드바 내비게이션 (v6.5.2: 3개 메뉴로 간소화)
+# 3. 사이드바 내비게이션 (v6.5.3: 3개 메뉴로 간소화)
 # ==========================================
 
 with st.sidebar:
-    st.title("은퇴 준비하기 v6.5.2")
+    st.title("은퇴 준비하기 v6.5.3")
     st.caption("자산관리 · 도서관리 · 영어공부에 집중")
     st.divider()
 
@@ -180,7 +180,7 @@ if menu == "💰 자산관리":
     (tab_overview, tab_pension, tab_personal, tab_sim, tab_order,
      tab_check, tab_milestone) = asset_tabs
 
-    # ⚠️ [v6.5.2 임시 비활성화] 현금흐름·리밸런싱·월간리포트 탭은 메뉴 간소화를 위해
+    # ⚠️ [v6.5.3 임시 비활성화] 현금흐름·리밸런싱·월간리포트 탭은 메뉴 간소화를 위해
     # UI에서 제외했습니다. 아래 코드 블록 3개(tab_cashflow, tab_rebal, tab_report)는
     # 삭제하지 않고 "# " 접두사를 붙인 주석 형태로 그대로 보존되어 있으니, 복원이 필요하면:
     #   1. 위 asset_tabs 리스트에 "💸 현금흐름", "🔄 리밸런싱", "📋 월간리포트" 추가
@@ -408,12 +408,20 @@ if menu == "💰 자산관리":
                         x_tick_vals = x_tick_vals[::step]
                         x_tick_texts = x_tick_texts[::step]
 
+                    # 마지막 tick 라벨이 그래프 우측 경계에 붙어 잘리는 현상 방지:
+                    # 첫/마지막 데이터 포인트 좌우로 약 2%씩 여백을 둬서 range를 명시적으로 넓힘
+                    x_min, x_max = monthly_total.index[0], monthly_total.index[-1]
+                    x_span = (x_max - x_min)
+                    x_pad = x_span * 0.04 if x_span.days > 0 else pd.Timedelta(days=15)
+
                     fig_full.update_layout(
                         height=400,
                         xaxis=dict(
                             tickmode='array',
                             tickvals=x_tick_vals,
-                            ticktext=x_tick_texts
+                            ticktext=x_tick_texts,
+                            range=[x_min - x_pad, x_max + x_pad],
+                            automargin=True
                         ),
                         yaxis=dict(tickvals=tick_vals_full, ticktext=tick_texts_full),
                         margin=dict(l=20, r=20, t=20, b=20),
@@ -892,7 +900,7 @@ if menu == "💰 자산관리":
 
     # =====================================================
     # 탭7: 현금흐름 (구 메뉴 그대로)
-    # ⚠️ v6.5.2: UI 간소화를 위해 임시 비활성화 (코드는 보존, 삭제 아님)
+    # ⚠️ v6.5.3: UI 간소화를 위해 임시 비활성화 (코드는 보존, 삭제 아님)
     # 복원 방법: 아래 "# " 로 시작하는 줄들의 "# " 접두사만 일괄 제거하면 즉시 동작
     # =====================================================
     # with tab_cashflow:
