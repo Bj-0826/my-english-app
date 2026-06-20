@@ -182,10 +182,10 @@ if menu == "💰 자산관리":
 
     # ⚠️ [v6.5.1 임시 비활성화] 현금흐름·리밸런싱·월간리포트 탭은 메뉴 간소화를 위해
     # UI에서 제외했습니다. 아래 코드 블록 3개(tab_cashflow, tab_rebal, tab_report)는
-    # 삭제하지 않고 그대로 보존되어 있으니, 복원이 필요하면:
+    # 삭제하지 않고 "# " 접두사를 붙인 주석 형태로 그대로 보존되어 있으니, 복원이 필요하면:
     #   1. 위 asset_tabs 리스트에 "💸 현금흐름", "🔄 리밸런싱", "📋 월간리포트" 추가
     #   2. 아래 unpacking 라인에 tab_cashflow, tab_rebal, tab_report 추가
-    #   3. 각 블록 앞의 """  ... """ 주석 처리만 제거하면 그대로 동작합니다.
+    #   3. 해당 블록의 각 줄 맨 앞 "# " 접두사를 일괄 제거하면 그대로 동작합니다.
 
     # =====================================================
     # 탭1: 통합 현황 (구 은퇴관제탑 t_ta) - 목표달성률 + 3개월 추이
@@ -878,217 +878,215 @@ if menu == "💰 자산관리":
     # =====================================================
     # 탭7: 현금흐름 (구 메뉴 그대로)
     # ⚠️ v6.5.1: UI 간소화를 위해 임시 비활성화 (코드는 보존, 삭제 아님)
-    # 복원 방법: 아래 시작/종료 """ 마커 두 줄만 제거하면 즉시 동작
+    # 복원 방법: 아래 "# " 로 시작하는 줄들의 "# " 접두사만 일괄 제거하면 즉시 동작
     # =====================================================
-    """
-    with tab_cashflow:
-        df_cf = load_data_safe("CashFlow")
-        df_bg = load_data_safe("Budgets")
+    # with tab_cashflow:
+        # df_cf = load_data_safe("CashFlow")
+        # df_bg = load_data_safe("Budgets")
 
-        CF_CATEGORIES = ["급여", "기타수익", "자기계발", "문화생활", "저축/투자", "쇼핑", "외식", "생활비", "마트",
-                         "통신비, 구독료", "교통비", "보험", "여행", "명절, 이벤트", "용돈", "기타"]
+        # CF_CATEGORIES = ["급여", "기타수익", "자기계발", "문화생활", "저축/투자", "쇼핑", "외식", "생활비", "마트",
+                         # "통신비, 구독료", "교통비", "보험", "여행", "명절, 이벤트", "용돈", "기타"]
 
-        c_f1, c_f2 = st.columns(2)
-        sel_y = c_f1.selectbox("조회 연도", [2025, 2026, 2027, 2028], index=1, key="cf_sel_y")
-        sel_m = c_f2.selectbox("조회 월", [f"{i:02d}" for i in range(1, 13)], index=now_kst.month - 1, key="cf_sel_m")
-        sel_period = f"{sel_y}-{sel_m}"
+        # c_f1, c_f2 = st.columns(2)
+        # sel_y = c_f1.selectbox("조회 연도", [2025, 2026, 2027, 2028], index=1, key="cf_sel_y")
+        # sel_m = c_f2.selectbox("조회 월", [f"{i:02d}" for i in range(1, 13)], index=now_kst.month - 1, key="cf_sel_m")
+        # sel_period = f"{sel_y}-{sel_m}"
 
-        cf1_t, cf2_t, cf3_t, cf4_t, cf5_t = st.tabs(["🚦 소비 신호등", "📝 내역 기록", "📊 지출 패턴 분석", "✏️ 내역 수정/삭제", "⚙️ 예산 설정"])
+        # cf1_t, cf2_t, cf3_t, cf4_t, cf5_t = st.tabs(["🚦 소비 신호등", "📝 내역 기록", "📊 지출 패턴 분석", "✏️ 내역 수정/삭제", "⚙️ 예산 설정"])
 
-        with cf1_t:
-            total_spent = 0
-            if not df_cf.empty:
-                df_cf['date_dt'] = pd.to_datetime(df_cf['date'], errors='coerce')
-                m_exp = df_cf[(df_cf['type'] == 'EXPENSE') & (df_cf['date_dt'].dt.strftime("%Y-%m") == sel_period)]
-                total_spent = m_exp['amount'].sum()
+        # with cf1_t:
+            # total_spent = 0
+            # if not df_cf.empty:
+                # df_cf['date_dt'] = pd.to_datetime(df_cf['date'], errors='coerce')
+                # m_exp = df_cf[(df_cf['type'] == 'EXPENSE') & (df_cf['date_dt'].dt.strftime("%Y-%m") == sel_period)]
+                # total_spent = m_exp['amount'].sum()
 
-            current_budget = df_bg[df_bg['period'] == sel_period]['budget_amount'].iloc[0] if not df_bg.empty and not df_bg[df_bg['period'] == sel_period].empty else 0
+            # current_budget = df_bg[df_bg['period'] == sel_period]['budget_amount'].iloc[0] if not df_bg.empty and not df_bg[df_bg['period'] == sel_period].empty else 0
 
-            if current_budget == 0:
-                st.info(f"📢 {sel_period}의 예산이 설정되지 않았습니다.")
-            else:
-                percent = (total_spent / current_budget) * 100
-                c1, c2, c3 = st.columns(3)
-                c1.metric("소비 상태", f"{percent:.1f}%", f"{int(current_budget - total_spent):,}원 남음")
+            # if current_budget == 0:
+                # st.info(f"📢 {sel_period}의 예산이 설정되지 않았습니다.")
+            # else:
+                # percent = (total_spent / current_budget) * 100
+                # c1, c2, c3 = st.columns(3)
+                # c1.metric("소비 상태", f"{percent:.1f}%", f"{int(current_budget - total_spent):,}원 남음")
 
-        with cf2_t:
-            with st.form("cf_form_v3", clear_on_submit=True):
-                c1, c2 = st.columns(2)
-                f_date = c1.date_input("날짜", now_kst)
-                f_type = c1.selectbox("구분", ["EXPENSE", "INCOME"])
-                f_cat = c2.selectbox("카테고리", CF_CATEGORIES)
-                f_amt = c2.number_input("금액", min_value=0, step=1000)
-                f_memo = st.text_input("메모")
-                f_rec = st.checkbox("정기 지출/수입 여부")
-                if st.form_submit_button("현금흐름 기록 저장"):
-                    new_data = pd.DataFrame([{"date": str(f_date), "type": f_type, "category": f_cat, "amount": f_amt, "memo": f_memo, "is_recurring": str(f_rec).upper()}])
-                    conn.update(worksheet="CashFlow", data=pd.concat([df_cf.drop(columns=['date_dt'], errors='ignore'), new_data], ignore_index=True))
-                    st.success("내역이 저장되었습니다!")
-                    st.rerun()
+        # with cf2_t:
+            # with st.form("cf_form_v3", clear_on_submit=True):
+                # c1, c2 = st.columns(2)
+                # f_date = c1.date_input("날짜", now_kst)
+                # f_type = c1.selectbox("구분", ["EXPENSE", "INCOME"])
+                # f_cat = c2.selectbox("카테고리", CF_CATEGORIES)
+                # f_amt = c2.number_input("금액", min_value=0, step=1000)
+                # f_memo = st.text_input("메모")
+                # f_rec = st.checkbox("정기 지출/수입 여부")
+                # if st.form_submit_button("현금흐름 기록 저장"):
+                    # new_data = pd.DataFrame([{"date": str(f_date), "type": f_type, "category": f_cat, "amount": f_amt, "memo": f_memo, "is_recurring": str(f_rec).upper()}])
+                    # conn.update(worksheet="CashFlow", data=pd.concat([df_cf.drop(columns=['date_dt'], errors='ignore'), new_data], ignore_index=True))
+                    # st.success("내역이 저장되었습니다!")
+                    # st.rerun()
 
-        with cf3_t:
-            if not df_cf.empty:
-                m_exp_only = df_cf[(df_cf['type'] == 'EXPENSE') & (pd.to_datetime(df_cf['date']).dt.strftime("%Y-%m") == sel_period)]
-                if not m_exp_only.empty:
-                    fig = px.pie(m_exp_only, values='amount', names='category', hole=0.4)
-                    st.plotly_chart(fig, use_container_width=True)
-                    st.dataframe(m_exp_only[['date', 'category', 'amount', 'memo']].sort_values('date', ascending=False), use_container_width=True)
+        # with cf3_t:
+            # if not df_cf.empty:
+                # m_exp_only = df_cf[(df_cf['type'] == 'EXPENSE') & (pd.to_datetime(df_cf['date']).dt.strftime("%Y-%m") == sel_period)]
+                # if not m_exp_only.empty:
+                    # fig = px.pie(m_exp_only, values='amount', names='category', hole=0.4)
+                    # st.plotly_chart(fig, use_container_width=True)
+                    # st.dataframe(m_exp_only[['date', 'category', 'amount', 'memo']].sort_values('date', ascending=False), use_container_width=True)
 
-        with cf4_t:
-            if not df_cf.empty:
-                m_data = df_cf[pd.to_datetime(df_cf['date'], errors='coerce').dt.strftime("%Y-%m") == sel_period].copy()
-                if not m_data.empty:
-                    m_data = m_data.sort_values('date', ascending=False)
-                    edit_list = m_data.apply(
-                        lambda x: f"[{x['date']}] {x['category']} - {x['memo']} ({int(x['amount']):,}원)", axis=1
-                    ).tolist()
-                    sel_item = st.selectbox("수정/삭제할 항목 선택 (최신순)", options=edit_list)
-                    sel_idx = m_data.index[edit_list.index(sel_item)]
+        # with cf4_t:
+            # if not df_cf.empty:
+                # m_data = df_cf[pd.to_datetime(df_cf['date'], errors='coerce').dt.strftime("%Y-%m") == sel_period].copy()
+                # if not m_data.empty:
+                    # m_data = m_data.sort_values('date', ascending=False)
+                    # edit_list = m_data.apply(
+                        # lambda x: f"[{x['date']}] {x['category']} - {x['memo']} ({int(x['amount']):,}원)", axis=1
+                    # ).tolist()
+                    # sel_item = st.selectbox("수정/삭제할 항목 선택 (최신순)", options=edit_list)
+                    # sel_idx = m_data.index[edit_list.index(sel_item)]
 
-                    with st.form("edit_cf_full"):
-                        ec1, ec2 = st.columns(2)
-                        e_date = ec1.date_input("날짜 수정", value=pd.to_datetime(df_cf.loc[sel_idx, 'date']).date())
-                        e_type = ec1.selectbox("구분 수정", ["EXPENSE", "INCOME"], index=0 if df_cf.loc[sel_idx, 'type'] == "EXPENSE" else 1)
-                        e_cat = ec2.selectbox("카테고리 수정", CF_CATEGORIES, index=CF_CATEGORIES.index(df_cf.loc[sel_idx, 'category']) if df_cf.loc[sel_idx, 'category'] in CF_CATEGORIES else 0)
-                        e_amt = ec2.number_input("금액 수정", value=int(df_cf.loc[sel_idx, 'amount']))
-                        e_memo = st.text_input("메모 수정", value=str(df_cf.loc[sel_idx, 'memo']))
-                        b1, b2 = st.columns(2)
-                        if b1.form_submit_button("💾 수정 완료"):
-                            df_cf.at[sel_idx, 'date'] = str(e_date)
-                            df_cf.at[sel_idx, 'type'] = e_type
-                            df_cf.at[sel_idx, 'category'] = e_cat
-                            df_cf.at[sel_idx, 'amount'] = e_amt
-                            df_cf.at[sel_idx, 'memo'] = e_memo
-                            conn.update(worksheet="CashFlow", data=df_cf.drop(columns=['date_dt'], errors='ignore'))
-                            st.rerun()
-                        if b2.form_submit_button("🗑️ 삭제 완료"):
-                            conn.update(worksheet="CashFlow", data=df_cf.drop(sel_idx).drop(columns=['date_dt'], errors='ignore'))
-                            st.rerun()
+                    # with st.form("edit_cf_full"):
+                        # ec1, ec2 = st.columns(2)
+                        # e_date = ec1.date_input("날짜 수정", value=pd.to_datetime(df_cf.loc[sel_idx, 'date']).date())
+                        # e_type = ec1.selectbox("구분 수정", ["EXPENSE", "INCOME"], index=0 if df_cf.loc[sel_idx, 'type'] == "EXPENSE" else 1)
+                        # e_cat = ec2.selectbox("카테고리 수정", CF_CATEGORIES, index=CF_CATEGORIES.index(df_cf.loc[sel_idx, 'category']) if df_cf.loc[sel_idx, 'category'] in CF_CATEGORIES else 0)
+                        # e_amt = ec2.number_input("금액 수정", value=int(df_cf.loc[sel_idx, 'amount']))
+                        # e_memo = st.text_input("메모 수정", value=str(df_cf.loc[sel_idx, 'memo']))
+                        # b1, b2 = st.columns(2)
+                        # if b1.form_submit_button("💾 수정 완료"):
+                            # df_cf.at[sel_idx, 'date'] = str(e_date)
+                            # df_cf.at[sel_idx, 'type'] = e_type
+                            # df_cf.at[sel_idx, 'category'] = e_cat
+                            # df_cf.at[sel_idx, 'amount'] = e_amt
+                            # df_cf.at[sel_idx, 'memo'] = e_memo
+                            # conn.update(worksheet="CashFlow", data=df_cf.drop(columns=['date_dt'], errors='ignore'))
+                            # st.rerun()
+                        # if b2.form_submit_button("🗑️ 삭제 완료"):
+                            # conn.update(worksheet="CashFlow", data=df_cf.drop(sel_idx).drop(columns=['date_dt'], errors='ignore'))
+                            # st.rerun()
 
-        with cf5_t:
-            with st.form("budget_setting"):
-                new_bg = st.number_input("해당 월 목표 예산", value=int(current_budget), step=100000)
-                if st.form_submit_button("예산 저장"):
-                    if not df_bg.empty and (df_bg['period'] == sel_period).any():
-                        df_bg.loc[df_bg['period'] == sel_period, 'budget_amount'] = new_bg
-                    else:
-                        df_bg = pd.concat([df_bg, pd.DataFrame([{"category": "전체", "budget_amount": new_bg, "period": sel_period}])], ignore_index=True)
-                    conn.update(worksheet="Budgets", data=df_bg)
-                    st.rerun()
+        # with cf5_t:
+            # with st.form("budget_setting"):
+                # new_bg = st.number_input("해당 월 목표 예산", value=int(current_budget), step=100000)
+                # if st.form_submit_button("예산 저장"):
+                    # if not df_bg.empty and (df_bg['period'] == sel_period).any():
+                        # df_bg.loc[df_bg['period'] == sel_period, 'budget_amount'] = new_bg
+                    # else:
+                        # df_bg = pd.concat([df_bg, pd.DataFrame([{"category": "전체", "budget_amount": new_bg, "period": sel_period}])], ignore_index=True)
+                    # conn.update(worksheet="Budgets", data=df_bg)
+                    # st.rerun()
 
-    # =====================================================
-    # 탭8: 리밸런싱 (구 전략모드 → 탭으로 흡수)
-    # =====================================================
-    with tab_rebal:
-        df_reb = load_data_safe("Rebalancing")
-        st.info("💡26년(70:30) → 27년(60:40) → 28년(50:50), 29년 이후 배당 ETF, 마켓금리액티브 매수")
+    # # =====================================================
+    # # 탭8: 리밸런싱 (구 전략모드 → 탭으로 흡수)
+    # # =====================================================
+    # with tab_rebal:
+        # df_reb = load_data_safe("Rebalancing")
+        # st.info("💡26년(70:30) → 27년(60:40) → 28년(50:50), 29년 이후 배당 ETF, 마켓금리액티브 매수")
 
-        with st.form("reb_in_form_v2"):
-            c1, c2 = st.columns(2)
-            r_date = c1.date_input("리밸런싱 실행 날짜", now_kst)
-            r_strat = c1.text_input("현재 전략 비중 (예: 70:30)")
-            r_action = c2.text_area("실행 내역 (매수/매도 상세)")
-            r_reason = st.text_area("리밸런싱 판단 근거")
-            r_target = c2.text_input("조정 후 목표 비중")
-            if st.form_submit_button("리밸런싱 내역 저장"):
-                new_reb = pd.DataFrame([{"date": str(r_date), "strategy": r_strat, "action": r_action, "reason": r_reason, "target_ratio": r_target}])
-                conn.update(worksheet="Rebalancing", data=pd.concat([df_reb, new_reb], ignore_index=True))
-                st.rerun()
+        # with st.form("reb_in_form_v2"):
+            # c1, c2 = st.columns(2)
+            # r_date = c1.date_input("리밸런싱 실행 날짜", now_kst)
+            # r_strat = c1.text_input("현재 전략 비중 (예: 70:30)")
+            # r_action = c2.text_area("실행 내역 (매수/매도 상세)")
+            # r_reason = st.text_area("리밸런싱 판단 근거")
+            # r_target = c2.text_input("조정 후 목표 비중")
+            # if st.form_submit_button("리밸런싱 내역 저장"):
+                # new_reb = pd.DataFrame([{"date": str(r_date), "strategy": r_strat, "action": r_action, "reason": r_reason, "target_ratio": r_target}])
+                # conn.update(worksheet="Rebalancing", data=pd.concat([df_reb, new_reb], ignore_index=True))
+                # st.rerun()
 
-        if not df_reb.empty:
-            st.divider()
-            for i, row in df_reb.iloc[::-1].iterrows():
-                with st.expander(f"📅 {row['date']} 리밸런싱 실행 기록"):
-                    st.write(f"**전략 비중:** {row['strategy']} → **목표 비중:** {row['target_ratio']}")
-                    st.write(f"**상세 액션:** {row['action']}")
-                    st.caption(f"**판단 근거:** {row['reason']}")
-                    if st.button("내역 삭제", key=f"reb_del_btn_{i}"):
-                        conn.update(worksheet="Rebalancing", data=df_reb.drop(i))
-                        st.rerun()
+        # if not df_reb.empty:
+            # st.divider()
+            # for i, row in df_reb.iloc[::-1].iterrows():
+                # with st.expander(f"📅 {row['date']} 리밸런싱 실행 기록"):
+                    # st.write(f"**전략 비중:** {row['strategy']} → **목표 비중:** {row['target_ratio']}")
+                    # st.write(f"**상세 액션:** {row['action']}")
+                    # st.caption(f"**판단 근거:** {row['reason']}")
+                    # if st.button("내역 삭제", key=f"reb_del_btn_{i}"):
+                        # conn.update(worksheet="Rebalancing", data=df_reb.drop(i))
+                        # st.rerun()
 
-    # =====================================================
-    # 탭9: 월간리포트 (여행/뉴스 섹션 제거 - 자산/현금흐름/독서만)
-    # =====================================================
-    with tab_report:
-        st.caption("자산·현금흐름·독서를 한 페이지로 자동 집계합니다.")
+    # # =====================================================
+    # # 탭9: 월간리포트 (여행/뉴스 섹션 제거 - 자산/현금흐름/독서만)
+    # # =====================================================
+    # with tab_report:
+        # st.caption("자산·현금흐름·독서를 한 페이지로 자동 집계합니다.")
 
-        rp_c1, rp_c2 = st.columns(2)
-        rp_year = rp_c1.selectbox("조회 연도", [2025, 2026, 2027, 2028], index=1, key="rp_year")
-        rp_month = rp_c2.selectbox("조회 월", [f"{i:02d}" for i in range(1, 13)], index=now_kst.month - 1, key="rp_month")
-        rp_period = f"{rp_year}-{rp_month}"
+        # rp_c1, rp_c2 = st.columns(2)
+        # rp_year = rp_c1.selectbox("조회 연도", [2025, 2026, 2027, 2028], index=1, key="rp_year")
+        # rp_month = rp_c2.selectbox("조회 월", [f"{i:02d}" for i in range(1, 13)], index=now_kst.month - 1, key="rp_month")
+        # rp_period = f"{rp_year}-{rp_month}"
 
-        st.divider()
+        # st.divider()
 
-        st.markdown("### 💰 자산 현황")
-        df_ta_rp = load_data_safe("TotalAssets")
-        if not df_ta_rp.empty:
-            df_ta_rp['date_clean'] = df_ta_rp['date'].astype(str).str.strip().str.lower()
-            df_ta_rp['date_dt'] = pd.to_datetime(df_ta_rp['date_clean'], errors='coerce')
-            df_ta_rp_valid = df_ta_rp.dropna(subset=['date_dt']).sort_values('date_dt')
-            rp_month_data = df_ta_rp_valid[df_ta_rp_valid['date_dt'].dt.strftime('%Y-%m') == rp_period]
-            prev_month_dt = (datetime.date(rp_year, int(rp_month), 1) - timedelta(days=1))
-            prev_period = prev_month_dt.strftime('%Y-%m')
-            rp_prev_data = df_ta_rp_valid[df_ta_rp_valid['date_dt'].dt.strftime('%Y-%m') == prev_period]
+        # st.markdown("### 💰 자산 현황")
+        # df_ta_rp = load_data_safe("TotalAssets")
+        # if not df_ta_rp.empty:
+            # df_ta_rp['date_clean'] = df_ta_rp['date'].astype(str).str.strip().str.lower()
+            # df_ta_rp['date_dt'] = pd.to_datetime(df_ta_rp['date_clean'], errors='coerce')
+            # df_ta_rp_valid = df_ta_rp.dropna(subset=['date_dt']).sort_values('date_dt')
+            # rp_month_data = df_ta_rp_valid[df_ta_rp_valid['date_dt'].dt.strftime('%Y-%m') == rp_period]
+            # prev_month_dt = (datetime.date(rp_year, int(rp_month), 1) - timedelta(days=1))
+            # prev_period = prev_month_dt.strftime('%Y-%m')
+            # rp_prev_data = df_ta_rp_valid[df_ta_rp_valid['date_dt'].dt.strftime('%Y-%m') == prev_period]
 
-            if not rp_month_data.empty:
-                cur_row = rp_month_data.iloc[-1]
-                prev_row = rp_prev_data.iloc[-1] if not rp_prev_data.empty else None
-                a1, a2, a3 = st.columns(3)
-                a1.metric("통합 총자산", f"{int(cur_row['grand_total']):,}원",
-                          f"{int(cur_row['grand_total'] - prev_row['grand_total']):+,}원" if prev_row is not None else None)
-                a2.metric("연금자산", f"{int(cur_row['pension_total']):,}원",
-                          f"{int(cur_row['pension_total'] - prev_row['pension_total']):+,}원" if prev_row is not None else None)
-                a3.metric("개인자산", f"{int(cur_row['personal_total']):,}원",
-                          f"{int(cur_row['personal_total'] - prev_row['personal_total']):+,}원" if prev_row is not None else None)
-                if pd.notnull(cur_row.get('insight', None)):
-                    st.info(f"💡 {rp_period} 인사이트: {cur_row['insight']}")
-            else:
-                st.info(f"{rp_period} 자산 데이터가 없습니다.")
-        else:
-            st.info("자산 데이터가 없습니다.")
+            # if not rp_month_data.empty:
+                # cur_row = rp_month_data.iloc[-1]
+                # prev_row = rp_prev_data.iloc[-1] if not rp_prev_data.empty else None
+                # a1, a2, a3 = st.columns(3)
+                # a1.metric("통합 총자산", f"{int(cur_row['grand_total']):,}원",
+                          # f"{int(cur_row['grand_total'] - prev_row['grand_total']):+,}원" if prev_row is not None else None)
+                # a2.metric("연금자산", f"{int(cur_row['pension_total']):,}원",
+                          # f"{int(cur_row['pension_total'] - prev_row['pension_total']):+,}원" if prev_row is not None else None)
+                # a3.metric("개인자산", f"{int(cur_row['personal_total']):,}원",
+                          # f"{int(cur_row['personal_total'] - prev_row['personal_total']):+,}원" if prev_row is not None else None)
+                # if pd.notnull(cur_row.get('insight', None)):
+                    # st.info(f"💡 {rp_period} 인사이트: {cur_row['insight']}")
+            # else:
+                # st.info(f"{rp_period} 자산 데이터가 없습니다.")
+        # else:
+            # st.info("자산 데이터가 없습니다.")
 
-        st.divider()
+        # st.divider()
 
-        st.markdown("### 💸 현금흐름 요약")
-        df_cf_rp = load_data_safe("CashFlow")
-        if not df_cf_rp.empty:
-            df_cf_rp['date_dt'] = pd.to_datetime(df_cf_rp['date'], errors='coerce')
-            rp_cf = df_cf_rp[df_cf_rp['date_dt'].dt.strftime('%Y-%m') == rp_period]
-            rp_income = rp_cf[rp_cf['type'] == 'INCOME']['amount'].sum()
-            rp_expense = rp_cf[rp_cf['type'] == 'EXPENSE']['amount'].sum()
-            rp_net = rp_income - rp_expense
-            rp_save_rate = (rp_net / rp_income * 100) if rp_income > 0 else 0
-            cf1, cf2, cf3, cf4 = st.columns(4)
-            cf1.metric("총 수입", f"{int(rp_income):,}원")
-            cf2.metric("총 지출", f"{int(rp_expense):,}원")
-            cf3.metric("순 수지", f"{int(rp_net):,}원")
-            cf4.metric("저축률", f"{rp_save_rate:.1f}%")
-            if not rp_cf[rp_cf['type'] == 'EXPENSE'].empty:
-                top5 = rp_cf[rp_cf['type'] == 'EXPENSE'].groupby('category')['amount'].sum().sort_values(ascending=False).head(5).reset_index()
-                top5.columns = ['카테고리', '금액']
-                top5['금액'] = top5['금액'].apply(lambda x: f"{int(x):,}원")
-                st.caption("📊 지출 TOP 5 카테고리")
-                st.table(top5)
-        else:
-            st.info(f"{rp_period} 현금흐름 데이터가 없습니다.")
+        # st.markdown("### 💸 현금흐름 요약")
+        # df_cf_rp = load_data_safe("CashFlow")
+        # if not df_cf_rp.empty:
+            # df_cf_rp['date_dt'] = pd.to_datetime(df_cf_rp['date'], errors='coerce')
+            # rp_cf = df_cf_rp[df_cf_rp['date_dt'].dt.strftime('%Y-%m') == rp_period]
+            # rp_income = rp_cf[rp_cf['type'] == 'INCOME']['amount'].sum()
+            # rp_expense = rp_cf[rp_cf['type'] == 'EXPENSE']['amount'].sum()
+            # rp_net = rp_income - rp_expense
+            # rp_save_rate = (rp_net / rp_income * 100) if rp_income > 0 else 0
+            # cf1, cf2, cf3, cf4 = st.columns(4)
+            # cf1.metric("총 수입", f"{int(rp_income):,}원")
+            # cf2.metric("총 지출", f"{int(rp_expense):,}원")
+            # cf3.metric("순 수지", f"{int(rp_net):,}원")
+            # cf4.metric("저축률", f"{rp_save_rate:.1f}%")
+            # if not rp_cf[rp_cf['type'] == 'EXPENSE'].empty:
+                # top5 = rp_cf[rp_cf['type'] == 'EXPENSE'].groupby('category')['amount'].sum().sort_values(ascending=False).head(5).reset_index()
+                # top5.columns = ['카테고리', '금액']
+                # top5['금액'] = top5['금액'].apply(lambda x: f"{int(x):,}원")
+                # st.caption("📊 지출 TOP 5 카테고리")
+                # st.table(top5)
+        # else:
+            # st.info(f"{rp_period} 현금흐름 데이터가 없습니다.")
 
-        st.divider()
+        # st.divider()
 
-        st.markdown("### 📚 이달의 독서")
-        df_bk_rp = load_data_safe("Books")
-        if not df_bk_rp.empty:
-            df_bk_rp['날짜_dt'] = pd.to_datetime(df_bk_rp['날짜'], errors='coerce')
-            rp_books = df_bk_rp[df_bk_rp['날짜_dt'].dt.strftime('%Y-%m') == rp_period]
-            if not rp_books.empty:
-                bk1, bk2 = st.columns(2)
-                bk1.metric("이달 완독", f"{len(rp_books)}권")
-                bk2.metric("도서 지출", f"₩{int(rp_books['가격'].sum()):,}")
-                st.table(rp_books[['날짜', '제목', '저자', '분류', '별점']].reset_index(drop=True))
-            else:
-                st.info(f"{rp_period}에 기록된 도서가 없습니다.")
-        else:
-            st.info("도서 데이터가 없습니다.")
-    """
+        # st.markdown("### 📚 이달의 독서")
+        # df_bk_rp = load_data_safe("Books")
+        # if not df_bk_rp.empty:
+            # df_bk_rp['날짜_dt'] = pd.to_datetime(df_bk_rp['날짜'], errors='coerce')
+            # rp_books = df_bk_rp[df_bk_rp['날짜_dt'].dt.strftime('%Y-%m') == rp_period]
+            # if not rp_books.empty:
+                # bk1, bk2 = st.columns(2)
+                # bk1.metric("이달 완독", f"{len(rp_books)}권")
+                # bk2.metric("도서 지출", f"₩{int(rp_books['가격'].sum()):,}")
+                # st.table(rp_books[['날짜', '제목', '저자', '분류', '별점']].reset_index(drop=True))
+            # else:
+                # st.info(f"{rp_period}에 기록된 도서가 없습니다.")
+        # else:
+            # st.info("도서 데이터가 없습니다.")
 
     # =====================================================
     # 탭10(원래 번호 유지): 마일스톤 (구 은퇴관제탑 t_ms, t_in 일부 흡수)
@@ -1381,3 +1379,6 @@ elif menu == "🔤 영어공부":
                 else:
                     st.error(f"Try again! 정답: {q['english']}")
             st.button("다음 문제로", on_click=reset_quiz)
+
+
+
