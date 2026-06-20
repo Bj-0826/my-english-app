@@ -12,7 +12,7 @@ from io import StringIO
 # ==========================================
 # 1. 앱 기본 설정 및 환경 변수
 # ==========================================
-st.set_page_config(page_title="은퇴 준비하기 v6.5.1", layout="wide")
+st.set_page_config(page_title="은퇴 준비하기 v6.5.2", layout="wide")
 
 KST = timezone(timedelta(hours=9))
 now_kst = datetime.datetime.now(KST).date()
@@ -147,11 +147,11 @@ def get_pension_account_defaults():
     return acc_defaults
 
 # ==========================================
-# 3. 사이드바 내비게이션 (v6.5.1: 3개 메뉴로 간소화)
+# 3. 사이드바 내비게이션 (v6.5.2: 3개 메뉴로 간소화)
 # ==========================================
 
 with st.sidebar:
-    st.title("은퇴 준비하기 v6.5.1")
+    st.title("은퇴 준비하기 v6.5.2")
     st.caption("자산관리 · 도서관리 · 영어공부에 집중")
     st.divider()
 
@@ -180,7 +180,7 @@ if menu == "💰 자산관리":
     (tab_overview, tab_pension, tab_personal, tab_sim, tab_order,
      tab_check, tab_milestone) = asset_tabs
 
-    # ⚠️ [v6.5.1 임시 비활성화] 현금흐름·리밸런싱·월간리포트 탭은 메뉴 간소화를 위해
+    # ⚠️ [v6.5.2 임시 비활성화] 현금흐름·리밸런싱·월간리포트 탭은 메뉴 간소화를 위해
     # UI에서 제외했습니다. 아래 코드 블록 3개(tab_cashflow, tab_rebal, tab_report)는
     # 삭제하지 않고 "# " 접두사를 붙인 주석 형태로 그대로 보존되어 있으니, 복원이 필요하면:
     #   1. 위 asset_tabs 리스트에 "💸 현금흐름", "🔄 리밸런싱", "📋 월간리포트" 추가
@@ -398,8 +398,23 @@ if menu == "💰 자산관리":
                     tick_vals_full = list(range(0, int(max_full) + int(tick_step_full), int(tick_step_full)))
                     tick_texts_full = [f"{int(v/1e8)}억" for v in tick_vals_full]
 
+                    # X축 월 라벨 중복 방지: Plotly 자동 tick 배치 대신 실제 데이터 포인트 위치를 직접 지정
+                    # (datetime 축에서 데이터 개수가 적을 때 plotly가 같은 월을 두 번 표시하는 현상 방지)
+                    x_tick_vals = list(monthly_total.index)
+                    x_tick_texts = [d.strftime('%y년 %m월') for d in x_tick_vals]
+                    # 데이터가 많을 경우(13개월 이상) 라벨이 겹치지 않도록 일부만 표시
+                    if len(x_tick_vals) > 12:
+                        step = max(1, len(x_tick_vals) // 12)
+                        x_tick_vals = x_tick_vals[::step]
+                        x_tick_texts = x_tick_texts[::step]
+
                     fig_full.update_layout(
-                        height=400, xaxis=dict(tickformat='%y년 %m월'),
+                        height=400,
+                        xaxis=dict(
+                            tickmode='array',
+                            tickvals=x_tick_vals,
+                            ticktext=x_tick_texts
+                        ),
                         yaxis=dict(tickvals=tick_vals_full, ticktext=tick_texts_full),
                         margin=dict(l=20, r=20, t=20, b=20),
                         legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1)
@@ -877,7 +892,7 @@ if menu == "💰 자산관리":
 
     # =====================================================
     # 탭7: 현금흐름 (구 메뉴 그대로)
-    # ⚠️ v6.5.1: UI 간소화를 위해 임시 비활성화 (코드는 보존, 삭제 아님)
+    # ⚠️ v6.5.2: UI 간소화를 위해 임시 비활성화 (코드는 보존, 삭제 아님)
     # 복원 방법: 아래 "# " 로 시작하는 줄들의 "# " 접두사만 일괄 제거하면 즉시 동작
     # =====================================================
     # with tab_cashflow:
@@ -1379,6 +1394,3 @@ elif menu == "🔤 영어공부":
                 else:
                     st.error(f"Try again! 정답: {q['english']}")
             st.button("다음 문제로", on_click=reset_quiz)
-
-
-
