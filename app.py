@@ -12,7 +12,7 @@ from io import StringIO
 # ==========================================
 # 1. 앱 기본 설정 및 환경 변수
 # ==========================================
-st.set_page_config(page_title="은퇴 준비하기 v6.5.0", layout="wide")
+st.set_page_config(page_title="은퇴 준비하기 v6.5.1", layout="wide")
 
 KST = timezone(timedelta(hours=9))
 now_kst = datetime.datetime.now(KST).date()
@@ -147,11 +147,11 @@ def get_pension_account_defaults():
     return acc_defaults
 
 # ==========================================
-# 3. 사이드바 내비게이션 (v6.5.0: 3개 메뉴로 간소화)
+# 3. 사이드바 내비게이션 (v6.5.1: 3개 메뉴로 간소화)
 # ==========================================
 
 with st.sidebar:
-    st.title("은퇴 준비하기 v6.5.0")
+    st.title("은퇴 준비하기 v6.5.1")
     st.caption("자산관리 · 도서관리 · 영어공부에 집중")
     st.divider()
 
@@ -175,10 +175,17 @@ if menu == "💰 자산관리":
     asset_tabs = st.tabs([
         "📊 통합 현황", "💰 연금자산", "💵 개인자산",
         "📈 연금 인출 시뮬", "🧭 인출순서·세금", "🛡️ 은퇴 점검 리포트",
-        "💸 현금흐름", "🔄 리밸런싱", "📋 월간리포트", "🎯 마일스톤"
+        "🎯 마일스톤"
     ])
     (tab_overview, tab_pension, tab_personal, tab_sim, tab_order,
-     tab_check, tab_cashflow, tab_rebal, tab_report, tab_milestone) = asset_tabs
+     tab_check, tab_milestone) = asset_tabs
+
+    # ⚠️ [v6.5.1 임시 비활성화] 현금흐름·리밸런싱·월간리포트 탭은 메뉴 간소화를 위해
+    # UI에서 제외했습니다. 아래 코드 블록 3개(tab_cashflow, tab_rebal, tab_report)는
+    # 삭제하지 않고 그대로 보존되어 있으니, 복원이 필요하면:
+    #   1. 위 asset_tabs 리스트에 "💸 현금흐름", "🔄 리밸런싱", "📋 월간리포트" 추가
+    #   2. 아래 unpacking 라인에 tab_cashflow, tab_rebal, tab_report 추가
+    #   3. 각 블록 앞의 """  ... """ 주석 처리만 제거하면 그대로 동작합니다.
 
     # =====================================================
     # 탭1: 통합 현황 (구 은퇴관제탑 t_ta) - 목표달성률 + 3개월 추이
@@ -328,56 +335,156 @@ if menu == "💰 자산관리":
         with sub1:
             if not df_p.empty and 'date' in df_p.columns:
                 df_p['date_dt'] = pd.to_datetime(df_p['date'], format='%Y-%m', errors='coerce')
-                dates_sorted_dt = sorted(df_p['date_dt'].dropna().unique())
+                df_p_valid = df_p.dropna(subset=['date_dt']).copy()
+                dates_sorted_dt = sorted(df_p_valid['date_dt'].unique())
 
                 if dates_sorted_dt:
-                    recent_dt = dates_sorted_dt[-3:]
-                    recent_labels = [d.strftime('%y년 %m월') for d in recent_dt]
-                    recent_str = [d.strftime('%Y-%m') for d in recent_dt]
-                    df_r = df_p[df_p['date'].isin(recent_str)].copy()
+                    ACCOUNT_COLORS = {'퇴직연금': '#1f77b4', 'IRP': '#ff7f0e', 'ISA': '#2ca02c', '개인연금': '#d62728'}
+                    accounts_all = sorted(df_p_valid['account'].unique())
 
-                    m_total = df_r.groupby('date_dt')['amount'].sum().reindex(recent_dt).fillna(0)
-                    cur = m_total.iloc[-1]
-                    prev = m_total.iloc[-2] if len(m_total) > 1 else cur
-                    diff = cur - prev
+                    # 전체 월별 계좌별 피벗 (월 × 계좌)
+                    monthly_pivot = df_p_valid.pivot_table(
+                        index='date_dt', columns='account', values='amount', aggfunc='sum'
+                    ).reindex(dates_sorted_dt).fillna(0)
+                    monthly_pivot = monthly_pivot.reindex(columns=accounts_all, fill_value=0)
+                    monthly_total = monthly_pivot.sum(axis=1)
 
-                    c1, c2 = st.columns(2)
-                    c1.metric(f"{recent_labels[-1]} 합계", f"{int(cur):,}원")
-                    c2.metric("전월 대비", f"{(diff / prev * 100) if prev != 0 else 0:+.1f}%", f"{int(diff):+,}원")
+                    latest_dt = dates_sorted_dt[-1]
+                    cur_total = monthly_total.iloc[-1]
+                    prev_total = monthly_total.iloc[-2] if len(monthly_total) > 1 else cur_total
+                    mom_diff = cur_total - prev_total
 
-                    fig = go.Figure()
-                    for acc in sorted(df_r['account'].unique()):
-                        acc_df = df_r[df_r['account'] == acc].set_index('date_dt').reindex(recent_dt).fillna(0).reset_index()
-                        hover_texts = [f"{acc}: {int(round(v / 1e6))}백만원" for v in acc_df['amount']]
-                        fig.add_trace(go.Bar(
-                            x=recent_labels, y=acc_df['amount'], name=acc,
-                            hovertext=hover_texts, hoverinfo='text'
+                    # 연초(또는 최초 기록) 대비 값 찾기
+                    cur_year = latest_dt.year
+                    year_start_candidates = monthly_total[monthly_total.index.year == cur_year]
+                    ytd_base = year_start_candidates.iloc[0] if not year_start_candidates.empty else monthly_total.iloc[0]
+                    ytd_diff = cur_total - ytd_base
+                    ytd_pct = (ytd_diff / ytd_base * 100) if ytd_base != 0 else 0
+
+                    first_total = monthly_total.iloc[0]
+                    total_growth_diff = cur_total - first_total
+                    total_growth_pct = (total_growth_diff / first_total * 100) if first_total != 0 else 0
+
+                    # ── ① 핵심 지표 카드 4개 ──
+                    st.markdown("##### 📌 핵심 지표")
+                    k1, k2, k3, k4 = st.columns(4)
+                    k1.metric(f"{latest_dt.strftime('%y년 %m월')} 합계", f"{int(cur_total):,}원")
+                    k2.metric("전월 대비", f"{(mom_diff/prev_total*100) if prev_total!=0 else 0:+.1f}%", f"{int(mom_diff):+,}원")
+                    k3.metric(f"{cur_year}년 누적 증가", f"{ytd_pct:+.1f}%", f"{int(ytd_diff):+,}원")
+                    k4.metric("최초 기록 대비 총증가", f"{total_growth_pct:+.1f}%", f"{int(total_growth_diff):+,}원")
+
+                    st.divider()
+
+                    # ── ② 전체 기간 추이 (누적 영역그래프) ──
+                    st.markdown("##### 📈 전체 기간 자산 추이")
+                    fig_full = go.Figure()
+                    for acc in accounts_all:
+                        fig_full.add_trace(go.Scatter(
+                            x=monthly_pivot.index, y=monthly_pivot[acc], name=acc,
+                            stackgroup='one', mode='lines',
+                            line=dict(width=0.5, color=ACCOUNT_COLORS.get(acc, '#888888')),
+                            hovertemplate=f'{acc}: ' + '%{customdata}백만원<extra></extra>',
+                            customdata=[round(v/1e6) for v in monthly_pivot[acc]]
                         ))
+                    fig_full.add_trace(go.Scatter(
+                        x=monthly_total.index, y=monthly_total, name='합계',
+                        mode='lines', line=dict(color='gold', width=3, dash='dot'),
+                        hovertemplate='합계: %{customdata}억원<extra></extra>',
+                        customdata=[round(v/1e8, 2) for v in monthly_total]
+                    ))
 
-                    max_y = m_total.max() * 1.3 if m_total.max() > 0 else 1e9
-                    tick_step = 1e8
-                    tick_vals = list(range(0, int(max_y) + int(tick_step), int(tick_step)))
-                    tick_texts = [f"{int(v / 1e8)}억" for v in tick_vals]
+                    max_full = monthly_total.max() * 1.2 if monthly_total.max() > 0 else 1e9
+                    tick_step_full = 5e8 if max_full > 20e8 else 2e8 if max_full > 10e8 else 1e8
+                    tick_vals_full = list(range(0, int(max_full) + int(tick_step_full), int(tick_step_full)))
+                    tick_texts_full = [f"{int(v/1e8)}억" for v in tick_vals_full]
 
-                    for i, (label, dt) in enumerate(zip(recent_labels, recent_dt)):
-                        total_val = m_total.iloc[i] if i < len(m_total) else 0
-                        fig.add_annotation(
-                            x=label, y=total_val,
-                            text=f"<b>{int(total_val):,}원</b>",
-                            showarrow=False, yshift=14,
-                            font=dict(size=12, color="#333333"),
-                            bgcolor="rgba(255,255,255,0.85)", borderpad=3,
-                            xanchor='center', yanchor='bottom'
-                        )
-
-                    fig.update_layout(
-                        barmode='stack', height=500,
-                        xaxis=dict(type='category'),
-                        yaxis=dict(tickvals=tick_vals, ticktext=tick_texts, range=[0, max_y]),
-                        margin=dict(l=20, r=20, t=50, b=20),
+                    fig_full.update_layout(
+                        height=400, xaxis=dict(tickformat='%y년 %m월'),
+                        yaxis=dict(tickvals=tick_vals_full, ticktext=tick_texts_full),
+                        margin=dict(l=20, r=20, t=20, b=20),
                         legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1)
                     )
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig_full, use_container_width=True)
+
+                    st.divider()
+
+                    # ── ③ 좌: 비중 도넛 / 우: 기간선택 막대 ──
+                    st.markdown("##### 🥧 계좌별 비중 · 기간별 비교")
+                    dc1, dc2 = st.columns([1, 2])
+
+                    with dc1:
+                        latest_row = monthly_pivot.loc[latest_dt]
+                        fig_donut = px.pie(
+                            values=latest_row.values, names=latest_row.index, hole=0.5,
+                            color=latest_row.index, color_discrete_map=ACCOUNT_COLORS,
+                            title=f"{latest_dt.strftime('%y년 %m월')} 비중"
+                        )
+                        fig_donut.update_traces(textinfo='label+percent')
+                        fig_donut.update_layout(height=380, margin=dict(l=10, r=10, t=40, b=10), showlegend=False)
+                        st.plotly_chart(fig_donut, use_container_width=True)
+
+                    with dc2:
+                        period_choice = st.radio(
+                            "조회 기간", ["3개월", "6개월", "12개월", "전체"],
+                            horizontal=True, index=1, key="pension_period_choice"
+                        )
+                        n_map = {"3개월": 3, "6개월": 6, "12개월": 12, "전체": len(dates_sorted_dt)}
+                        n_sel = min(n_map[period_choice], len(dates_sorted_dt))
+                        sel_dates = dates_sorted_dt[-n_sel:]
+                        sel_labels = [d.strftime('%y년 %m월') for d in sel_dates]
+                        sel_pivot = monthly_pivot.loc[sel_dates]
+                        sel_total = monthly_total.loc[sel_dates]
+
+                        fig_period = go.Figure()
+                        for acc in accounts_all:
+                            hover_texts = [f"{acc}: {int(round(v/1e6))}백만원" for v in sel_pivot[acc]]
+                            fig_period.add_trace(go.Bar(
+                                x=sel_labels, y=sel_pivot[acc], name=acc,
+                                marker_color=ACCOUNT_COLORS.get(acc, '#888888'),
+                                hovertext=hover_texts, hoverinfo='text'
+                            ))
+
+                        max_p = sel_total.max() * 1.3 if sel_total.max() > 0 else 1e9
+                        tick_step_p = 1e8
+                        tick_vals_p = list(range(0, int(max_p) + int(tick_step_p), int(tick_step_p)))
+                        tick_texts_p = [f"{int(v/1e8)}억" for v in tick_vals_p]
+
+                        for label, total_val in zip(sel_labels, sel_total):
+                            fig_period.add_annotation(
+                                x=label, y=total_val, text=f"<b>{int(total_val):,}원</b>",
+                                showarrow=False, yshift=12, font=dict(size=10, color="#333333"),
+                                bgcolor="rgba(255,255,255,0.85)", borderpad=2,
+                                xanchor='center', yanchor='bottom'
+                            )
+
+                        fig_period.update_layout(
+                            barmode='stack', height=380,
+                            xaxis=dict(type='category'),
+                            yaxis=dict(tickvals=tick_vals_p, ticktext=tick_texts_p, range=[0, max_p]),
+                            margin=dict(l=10, r=10, t=20, b=20),
+                            legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1)
+                        )
+                        st.plotly_chart(fig_period, use_container_width=True)
+
+                    st.divider()
+
+                    # ── ④ 월별 변동 테이블 (펼쳐보기) ──
+                    with st.expander("📋 월별 변동 상세 테이블 보기"):
+                        table_df = monthly_pivot.copy()
+                        table_df['합계'] = monthly_total
+                        table_df['전월대비'] = table_df['합계'].diff()
+                        table_df = table_df.sort_index(ascending=False)
+                        table_df.index = table_df.index.strftime('%Y년 %m월')
+
+                        display_df = table_df.copy()
+                        for col in display_df.columns:
+                            if col == '전월대비':
+                                display_df[col] = display_df[col].apply(lambda v: f"{int(v):+,}원" if pd.notnull(v) else "-")
+                            else:
+                                display_df[col] = display_df[col].apply(lambda v: f"{int(v):,}원")
+                        st.dataframe(display_df, use_container_width=True)
+            else:
+                st.info("연금자산 데이터를 입력해 주세요.")
 
         with sub2:
             c1, c2 = st.columns(2)
@@ -770,7 +877,10 @@ if menu == "💰 자산관리":
 
     # =====================================================
     # 탭7: 현금흐름 (구 메뉴 그대로)
+    # ⚠️ v6.5.1: UI 간소화를 위해 임시 비활성화 (코드는 보존, 삭제 아님)
+    # 복원 방법: 아래 시작/종료 """ 마커 두 줄만 제거하면 즉시 동작
     # =====================================================
+    """
     with tab_cashflow:
         df_cf = load_data_safe("CashFlow")
         df_bg = load_data_safe("Budgets")
@@ -978,9 +1088,10 @@ if menu == "💰 자산관리":
                 st.info(f"{rp_period}에 기록된 도서가 없습니다.")
         else:
             st.info("도서 데이터가 없습니다.")
+    """
 
     # =====================================================
-    # 탭10: 마일스톤 (구 은퇴관제탑 t_ms, t_in 일부 흡수)
+    # 탭10(원래 번호 유지): 마일스톤 (구 은퇴관제탑 t_ms, t_in 일부 흡수)
     # =====================================================
     with tab_milestone:
         df_ms = load_data_safe("Milestones")
