@@ -12,7 +12,7 @@ from io import StringIO
 # ==========================================
 # 1. 앱 기본 설정 및 환경 변수
 # ==========================================
-st.set_page_config(page_title="은퇴 준비하기 v6.5.3", layout="wide")
+st.set_page_config(page_title="은퇴 준비하기 v6.5.4", layout="wide")
 
 KST = timezone(timedelta(hours=9))
 now_kst = datetime.datetime.now(KST).date()
@@ -147,11 +147,11 @@ def get_pension_account_defaults():
     return acc_defaults
 
 # ==========================================
-# 3. 사이드바 내비게이션 (v6.5.3: 3개 메뉴로 간소화)
+# 3. 사이드바 내비게이션 (v6.5.4: 3개 메뉴로 간소화)
 # ==========================================
 
 with st.sidebar:
-    st.title("은퇴 준비하기 v6.5.3")
+    st.title("은퇴 준비하기 v6.5.4")
     st.caption("자산관리 · 도서관리 · 영어공부에 집중")
     st.divider()
 
@@ -180,7 +180,7 @@ if menu == "💰 자산관리":
     (tab_overview, tab_pension, tab_personal, tab_sim, tab_order,
      tab_check, tab_milestone) = asset_tabs
 
-    # ⚠️ [v6.5.3 임시 비활성화] 현금흐름·리밸런싱·월간리포트 탭은 메뉴 간소화를 위해
+    # ⚠️ [v6.5.4 임시 비활성화] 현금흐름·리밸런싱·월간리포트 탭은 메뉴 간소화를 위해
     # UI에서 제외했습니다. 아래 코드 블록 3개(tab_cashflow, tab_rebal, tab_report)는
     # 삭제하지 않고 "# " 접두사를 붙인 주석 형태로 그대로 보존되어 있으니, 복원이 필요하면:
     #   1. 위 asset_tabs 리스트에 "💸 현금흐름", "🔄 리밸런싱", "📋 월간리포트" 추가
@@ -248,8 +248,20 @@ if menu == "💰 자산관리":
                 c3.metric("개인자산", f"{int(latest['personal_total']):,}원")
 
                 st.divider()
-                df_plot = df_ta_valid.tail(3).copy()
-                df_plot['display_date'] = df_plot['date_dt'].dt.strftime('%y년 %m월')
+
+                # ── 최근 3개월 데이터 집계 ──
+                # tail(3)은 "최근 3행"이라 같은 달에 여러 건 입력 시 2달치만 보이는 문제 발생
+                # → 연월(YYYY-MM) 기준으로 집계해서 한 달에 값이 여러 개면 최신 한 건만 사용
+                df_ta_valid['ym'] = df_ta_valid['date_dt'].dt.to_period('M')
+                # 각 월별로 가장 마지막 행만 취함 (최신 입력값 우선)
+                df_monthly = (
+                    df_ta_valid.sort_values('date_dt')
+                    .groupby('ym', sort=True)
+                    .last()
+                    .reset_index()
+                )
+                df_plot = df_monthly.tail(3).copy()
+                df_plot['display_date'] = df_plot['ym'].dt.strftime('%y년 %m월').astype(str)
 
                 fig_ct = go.Figure()
                 fig_ct.add_trace(go.Bar(
@@ -274,6 +286,8 @@ if menu == "💰 자산관리":
 
                 max_ct = df_plot['grand_total'].max() * 1.3 if not df_plot.empty else 1e9
                 for _, row in df_plot.iterrows():
+                    # annotation y값을 grand_total로 통일
+                    # (barmode=stack에서 막대 상단 = pension + personal = grand_total이어야 정상)
                     fig_ct.add_annotation(
                         x=row['display_date'], y=row['grand_total'],
                         text=f"<b>{int(row['grand_total']):,}원</b>",
@@ -900,7 +914,7 @@ if menu == "💰 자산관리":
 
     # =====================================================
     # 탭7: 현금흐름 (구 메뉴 그대로)
-    # ⚠️ v6.5.3: UI 간소화를 위해 임시 비활성화 (코드는 보존, 삭제 아님)
+    # ⚠️ v6.5.4: UI 간소화를 위해 임시 비활성화 (코드는 보존, 삭제 아님)
     # 복원 방법: 아래 "# " 로 시작하는 줄들의 "# " 접두사만 일괄 제거하면 즉시 동작
     # =====================================================
     # with tab_cashflow:
