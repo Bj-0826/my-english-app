@@ -12,7 +12,7 @@ from io import StringIO
 # ==========================================
 # 1. 앱 기본 설정 및 환경 변수
 # ==========================================
-st.set_page_config(page_title="은퇴 준비하기 v6.5.6", layout="wide")
+st.set_page_config(page_title="은퇴 준비하기 v6.5.7", layout="wide")
 
 KST = timezone(timedelta(hours=9))
 now_kst = datetime.datetime.now(KST).date()
@@ -147,11 +147,11 @@ def get_pension_account_defaults():
     return acc_defaults
 
 # ==========================================
-# 3. 사이드바 내비게이션 (v6.5.6: 3개 메뉴로 간소화)
+# 3. 사이드바 내비게이션 (v6.5.7: 3개 메뉴로 간소화)
 # ==========================================
 
 with st.sidebar:
-    st.title("은퇴 준비하기 v6.5.6")
+    st.title("은퇴 준비하기 v6.5.7")
     st.caption("자산관리 · 도서관리 · 영어공부에 집중")
     st.divider()
 
@@ -180,7 +180,7 @@ if menu == "💰 자산관리":
     (tab_overview, tab_pension, tab_personal, tab_sim, tab_order,
      tab_check, tab_milestone) = asset_tabs
 
-    # ⚠️ [v6.5.6 임시 비활성화] 현금흐름·리밸런싱·월간리포트 탭은 메뉴 간소화를 위해
+    # ⚠️ [v6.5.7 임시 비활성화] 현금흐름·리밸런싱·월간리포트 탭은 메뉴 간소화를 위해
     # UI에서 제외했습니다. 아래 코드 블록 3개(tab_cashflow, tab_rebal, tab_report)는
     # 삭제하지 않고 "# " 접두사를 붙인 주석 형태로 그대로 보존되어 있으니, 복원이 필요하면:
     #   1. 위 asset_tabs 리스트에 "💸 현금흐름", "🔄 리밸런싱", "📋 월간리포트" 추가
@@ -238,7 +238,7 @@ if menu == "💰 자산관리":
                     title={'text': f"목표 {goal_asset:,}원 대비 달성률", 'font': {'size': 14}}
                 ))
                 fig_gauge.update_layout(height=280, margin=dict(l=20, r=20, t=40, b=10))
-                st.plotly_chart(fig_gauge, width="stretch")
+                st.plotly_chart(fig_gauge, use_container_width=True)
 
                 st.divider()
                 st.subheader(f"📊 {latest['date_clean']} 통합 자산 요약")
@@ -309,7 +309,7 @@ if menu == "💰 자산관리":
                     margin=dict(l=20, r=20, t=50, b=20),
                     legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1)
                 )
-                st.plotly_chart(fig_ct, width="stretch")
+                st.plotly_chart(fig_ct, use_container_width=True)
 
                 if pd.notnull(latest.get('insight', None)):
                     st.info(f"💡 이번 달 인사이트: {latest['insight']}")
@@ -454,7 +454,7 @@ if menu == "💰 자산관리":
                         margin=dict(l=20, r=20, t=20, b=20),
                         legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1)
                     )
-                    st.plotly_chart(fig_full, width="stretch")
+                    st.plotly_chart(fig_full, use_container_width=True)
 
                     st.divider()
 
@@ -471,7 +471,7 @@ if menu == "💰 자산관리":
                         )
                         fig_donut.update_traces(textinfo='label+percent')
                         fig_donut.update_layout(height=380, margin=dict(l=10, r=10, t=40, b=10), showlegend=False)
-                        st.plotly_chart(fig_donut, width="stretch")
+                        st.plotly_chart(fig_donut, use_container_width=True)
 
                     with dc2:
                         period_choice = st.radio(
@@ -513,7 +513,7 @@ if menu == "💰 자산관리":
                             margin=dict(l=10, r=10, t=20, b=20),
                             legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1)
                         )
-                        st.plotly_chart(fig_period, width="stretch")
+                        st.plotly_chart(fig_period, use_container_width=True)
 
                     st.divider()
 
@@ -532,7 +532,7 @@ if menu == "💰 자산관리":
                             else:
                                 row['전월대비'] = "-"
                             table_rows.append(row)
-                        st.dataframe(pd.DataFrame(table_rows), width="stretch")
+                        st.dataframe(pd.DataFrame(table_rows), use_container_width=True)
             else:
                 st.info("연금자산 데이터를 입력해 주세요.")
 
@@ -615,7 +615,7 @@ if menu == "💰 자산관리":
                         margin=dict(l=20, r=20, t=50, b=20),
                         legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1)
                     )
-                    st.plotly_chart(fig, width="stretch")
+                    st.plotly_chart(fig, use_container_width=True)
 
         with sub2:
             st.subheader("📝 개인자산 입력")
@@ -754,7 +754,7 @@ if menu == "💰 자산관리":
                 height=480, margin=dict(l=20, r=20, t=50, b=20),
                 legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1)
             )
-            st.plotly_chart(fig_sim, width="stretch")
+            st.plotly_chart(fig_sim, use_container_width=True)
 
             m1, m2, m3 = st.columns(3)
             if depletion_month is not None:
@@ -927,7 +927,7 @@ if menu == "💰 자산관리":
 
     # =====================================================
     # 탭7: 현금흐름 (구 메뉴 그대로)
-    # ⚠️ v6.5.6: UI 간소화를 위해 임시 비활성화 (코드는 보존, 삭제 아님)
+    # ⚠️ v6.5.7: UI 간소화를 위해 임시 비활성화 (코드는 보존, 삭제 아님)
     # 복원 방법: 아래 "# " 로 시작하는 줄들의 "# " 접두사만 일괄 제거하면 즉시 동작
     # =====================================================
     # with tab_cashflow:
@@ -980,8 +980,8 @@ if menu == "💰 자산관리":
                 # m_exp_only = df_cf[(df_cf['type'] == 'EXPENSE') & (pd.to_datetime(df_cf['date']).dt.strftime("%Y-%m") == sel_period)]
                 # if not m_exp_only.empty:
                     # fig = px.pie(m_exp_only, values='amount', names='category', hole=0.4)
-                    # st.plotly_chart(fig, width="stretch")
-                    # st.dataframe(m_exp_only[['date', 'category', 'amount', 'memo']].sort_values('date', ascending=False), width="stretch")
+                    # st.plotly_chart(fig, use_container_width=True)
+                    # st.dataframe(m_exp_only[['date', 'category', 'amount', 'memo']].sort_values('date', ascending=False), use_container_width=True)
 
         # with cf4_t:
             # if not df_cf.empty:
@@ -1244,7 +1244,7 @@ elif menu == "📚 도서관리":
                 title={'text': f"{goal_year}년 독서 목표 달성률 ({read_count}/{goal_books}권)", 'font': {'size': 14}}
             ))
             fig_book_gauge.update_layout(height=260, margin=dict(l=20, r=20, t=40, b=10))
-            st.plotly_chart(fig_book_gauge, width="stretch")
+            st.plotly_chart(fig_book_gauge, use_container_width=True)
 
             if not year_df.empty:
                 st.divider()
@@ -1281,7 +1281,7 @@ elif menu == "📚 도서관리":
                     margin=dict(l=20, r=20, t=30, b=20),
                     legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1)
                 )
-                st.plotly_chart(fig_monthly, width="stretch")
+                st.plotly_chart(fig_monthly, use_container_width=True)
 
                 st.divider()
                 st.subheader("📊 장르별 독서 분포")
@@ -1290,7 +1290,7 @@ elif menu == "📚 도서관리":
                 fig_genre = px.pie(genre_counts, values='권수', names='분류', hole=0.4,
                                    title=f"{goal_year}년 장르 분포")
                 fig_genre.update_layout(height=320, margin=dict(l=20, r=20, t=40, b=20))
-                st.plotly_chart(fig_genre, width="stretch")
+                st.plotly_chart(fig_genre, use_container_width=True)
         else:
             st.info("도서를 먼저 등록해주세요.")
 
@@ -1353,7 +1353,7 @@ elif menu == "🔤 영어공부":
 
     with t1:
         if not df_en.empty:
-            ed = st.data_editor(df_en[['date', 'english', 'korean', 'memorized']].iloc[::-1], width="stretch", key="en_ed")
+            ed = st.data_editor(df_en[['date', 'english', 'korean', 'memorized']].iloc[::-1], use_container_width=True, key="en_ed")
             if st.button("암기 상태 한꺼번에 저장"):
                 save_df = df_en.copy()
                 save_df.update(ed)
@@ -1429,6 +1429,3 @@ elif menu == "🔤 영어공부":
                 else:
                     st.error(f"Try again! 정답: {q['english']}")
             st.button("다음 문제로", on_click=reset_quiz)
-
-
-
